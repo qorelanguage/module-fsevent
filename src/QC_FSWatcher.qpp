@@ -1,0 +1,255 @@
+/* -*- mode: c++; indent-tabs-mode: nil -*- */
+/*
+*/
+
+#include <qore/Qore.h>
+#include <efsw/efsw.hpp>
+
+
+using namespace efsw;
+
+
+DLLLOCAL extern qore_classid_t CID_FSWATCHER;
+DLLLOCAL extern QoreClass* QC_FSWATCHER;
+
+
+
+// handle external (oracle) threads for qore/aq
+class AQCallbackThreadManager {
+protected:
+   pthread_t ora_thread;
+   QoreThreadLock l;
+   unsigned count;
+   int tid;
+
+public:
+   DLLLOCAL AQCallbackThreadManager() : count(0), tid(0) {
+   }
+
+   DLLLOCAL ~AQCallbackThreadManager() {
+      assert(!tid);
+      assert(!count);
+   }
+
+   DLLLOCAL void inc() {
+      AutoLocker al(l);
+      if (!count) {
+         assert(!tid);
+         tid = q_reserve_foreign_thread_id();
+         assert(tid > 0);
+      }
+      ++count;
+   }
+
+   DLLLOCAL void dec() {
+      AutoLocker al(l);
+      if (!--count) {
+         q_release_reserved_foreign_thread_id(tid);
+         tid = 0;
+      }
+   }
+
+   DLLLOCAL int getTid() const {
+      assert(tid);
+      return tid;
+   }
+
+   DLLLOCAL unsigned getCount() const {
+      return count;
+   }
+};
+
+AQCallbackThreadManager aqCallbackThreadManager;
+
+
+
+
+class FSWatcherPriv : public AbstractPrivateData, public FileWatchListener {
+protected:
+    DLLLOCAL virtual ~FSWatcherPriv();
+
+public:
+    DLLLOCAL FSWatcherPriv(QoreObject *obj);
+
+    DLLLOCAL int addWatch(const char * path, bool recursive, ExceptionSink *xsink);
+    DLLLOCAL void removeWatch(WatchID id, ExceptionSink *xsink);
+    DLLLOCAL void removeWatch(const char *path, ExceptionSink *xsink);
+    DLLLOCAL AbstractQoreNode* directories();
+
+    DLLLOCAL void handleFileAction(WatchID watchid, const std::string& dir, const std::string& filename, Action action, std::string oldFilename = "");
+
+
+private:
+    FileWatcher *m_fw;
+    QoreObject *m_obj;
+};
+
+
+
+FSWatcherPriv::FSWatcherPriv(QoreObject *obj) {
+    m_obj = obj;
+    m_fw = new FileWatcher();
+    m_fw->watch();
+    aqCallbackThreadManager.inc();
+}
+
+FSWatcherPriv::~FSWatcherPriv() {
+    aqCallbackThreadManager.dec();
+    delete m_fw;
+}
+
+int FSWatcherPriv::addWatch(const char * path, bool recursive, ExceptionSink *xsink) {
+     WatchID id = m_fw->addWatch(path, this, recursive);
+
+     switch (id) {
+         case Errors::FileNotFound:
+         case Errors::FileRepeated:
+         case Errors::FileOutOfScope:
+         case Errors::Unspecified:
+             xsink->raiseException("FSWATCHER-ADD-ERROR", Errors::Log::getLastErrorLog().c_str());
+             return 0;
+             break;
+         default:
+             return id;
+     }
+}
+
+void FSWatcherPriv::removeWatch(WatchID id, ExceptionSink *xsink) {
+    m_fw->removeWatch(id);
+}
+
+void FSWatcherPriv::removeWatch(const char * path, ExceptionSink *xsink) {
+    m_fw->removeWatch(path);
+}
+
+AbstractQoreNode* FSWatcherPriv::directories() {
+    std::list<std::string> dirs = m_fw->directories();
+    if (!dirs.size())
+        return nothing();
+
+    QoreListNode *ret = new QoreListNode();
+    for (std::list<std::string>::iterator it = dirs.begin(); it != dirs.end(); ++it)
+        ret->push(new QoreStringNode(*it));
+
+    return ret;
+}
+
+/// Handles the action file action
+/// @param watchid The watch id for the directory
+/// @param dir The directory
+/// @param filename The filename that was accessed (not full path)
+/// @param action Action that was performed
+/// @param oldFilename The name of the file or directory moved
+void FSWatcherPriv::handleFileAction(WatchID watchid, const std::string& dir, const std::string& filename, Action action, std::string oldFilename) {
+
+    QoreForeignThreadHelper qfth(aqCallbackThreadManager.getTid());
+
+    ExceptionSink xsink;
+
+    QoreListNode *args = new QoreListNode();
+    args->push(new QoreBigIntNode(watchid));
+    args->push(new QoreStringNode(dir));
+    args->push(new QoreStringNode(filename));
+    args->push(new QoreBigIntNode(action));
+    args->push(new QoreStringNode(oldFilename));
+
+    m_obj->evalMethod("event", args, &xsink);
+
+    args->deref(&xsink);
+}
+
+
+
+
+//! Implementation of filesystem event watcher.
+/**
+This is an abstract class. Developers have to inherit FSWatcher with method event() implemented.
+
+<b>Basic Example</b>
+
+@code
+%requires fsevent
+
+class MyWatcher inherits FSEvents::FSWatcher
+{
+    nothing event(int $id, string $dir, string $fname, int $action, string $oldFname) {
+        printf("FS event: %d, %s, %s, %d, %s\n", $id, $dir, $fname, $action, $oldFname);
+    }
+}
+
+my MyWatcher $w();
+$w.addPath('/var/log/');
+while (True)
+    sleep(1);
+
+@endcode
+ */
+qclass FSWatcher [dom=FILESYSTEM; arg=FSWatcherPriv* priv; ns=Qore::FSEvents];
+
+
+//! Create an empty file system watcher. No directories are monitored. 
+/**
+ */
+FSWatcher::constructor() {
+    self->setPrivate(CID_FSWATCHER, new FSWatcherPriv(self));
+}
+
+//! Copy method - instance of this class cannot be copied. 
+/**
+    @throw FSWATCHER-COPY-ERROR	- Copying of FSWatcher objects is not supported 
+ */
+FSWatcher::copy() {
+   xsink->raiseException("FSWATCHER-COPY-ERROR", "copying FSWatcher objects is currently not supported");
+}
+
+//! Add new path for monitoring. 
+/**
+    @param path	a string with path to be monitored
+    @param recursive	a boolean flag; False = only the top level directory is monitored; True = all sub-directories are monitored too
+
+    @returns integer id of monitored tree
+
+    The returning id can be used in FSWatcher::removePath() 
+ */
+int FSWatcher::addPath(string path, bool recursive=False) {
+    return priv->addWatch(path->getBuffer(), recursive, xsink);
+}
+
+//! Remove a directory tree from monitoring by its id. 
+/**
+    @param id	an integer value. Obtained by FSWatcher::addPath
+
+    This method uses a map lookup O(logn) 
+ */
+nothing FSWatcher::removePath(int id) {
+    priv->removeWatch(id, xsink);
+}
+
+//! Remove a directory tree from monitoring by its name. 
+/**
+    @param path	a named path to remove
+
+    This method uses a brute force list search O(nlogn) 
+ */
+nothing FSWatcher::removePath(string path) {
+    priv->removeWatch(path->getBuffer(), xsink);
+}
+
+//! Return all monitored directories.
+/**
+    @return list of all registered (top-level) directories in this watcher instance or @ref Qore::NOTHING if there is no directory registered
+ */
+*list FSWatcher::directories() {
+    return priv->directories();
+}
+
+//! Filesystem event handler/callback.
+/**
+    @param id	monitoring id as returned from FSWatcher::addPath
+    @param dir	directory path
+    @param fname	affected file name (without path)
+    @param action	action type. One of filesystem_constants
+    @param oldFname	old file name if is the action of type Qore::FSEvents::MOVED
+ */
+abstract nothing FSWatcher::event(int id, string dir, string fname, int action, string oldFname);
+

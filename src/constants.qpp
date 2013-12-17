@@ -1,0 +1,29 @@
+#include <qore/Qore.h>
+#include <efsw/efsw.hpp>
+
+
+/** @defgroup fsevent_constants Filesystem Events Constants
+
+    Constants used for \c action value in @ref Qore::FSEvents::FSWatcher \c event() method
+ */
+//@{
+namespace Qore::FSEvents;
+
+//! File added
+const ADD = 1;
+//efsw::Actions::Add;
+
+//! File deleted
+const DELETE = 2;
+//efsw::Actions::Delete;
+
+//! File modified
+const MODIFIED = 3;
+//efsw::Actions::Modified;
+
+//! File moved
+const MOVED = 4;
+//efsw::Actions::Moved;
+
+//@}
+
