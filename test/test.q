@@ -1,3 +1,5 @@
+#!/usr/bin/env qore
+
 %requires fsevent
 
 class Watcher inherits public FSWatcher
