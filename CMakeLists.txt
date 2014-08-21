@@ -88,7 +88,7 @@ endif ()
 
 add_definitions(-DUSE_UTF8)
 
-qore_wrap_qpp(QPP_SOURCES "${QPP_SRC}")
+qore_wrap_qpp(QPP_SOURCES ${QPP_SRC})
 
 SET (module_name "fsevent")
 
