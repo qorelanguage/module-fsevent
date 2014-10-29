@@ -1,0 +1,298 @@
+# -*- mode: qore; indent-tabs-mode: nil -*-
+#! @file FilePoller.qm filePoller: Filesystem based polling solution
+
+/*  FilePoller.qm Copyright (C) 2014 Qore Technologies sro.
+
+    Permission is hereby granted, free of charge, to any person obtaining a
+    copy of this software and associated documentation files (the "Software"),
+    to deal in the Software without restriction, including without limitation
+    the rights to use, copy, modify, merge, publish, distribute, sublicense,
+    and/or sell copies of the Software, and to permit persons to whom the
+    Software is furnished to do so, subject to the following conditions:
+
+    The above copyright notice and this permission notice shall be included in
+    all copies or substantial portions of the Software.
+
+    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+    IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+    FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+    AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+    LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+    FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+    DEALINGS IN THE SOFTWARE.
+*/
+
+# make sure we have the required qore version
+%requires qore >= 0.8.10
+
+module FilePoller {
+    version = "0.1.0";
+    desc = "Filesystem polling solution";
+    author = "Petr Vanek <petr@yarpen.cz>";
+    url = "http://qore.org";
+    license = "MIT";
+}
+
+%requires fsevent
+
+%new-style
+%require-types
+
+/*  Version History
+    *            v0.1.0: initial implementation
+
+
+*/
+
+/** @mainpage FilePoller Module
+    
+*/
+
+#! main module namespace
+public namespace FilePoller {
+    #! this implementation version
+    public const version     = "0.1.0";
+    
+}
+
+
+#! TODO/FIXME
+public class FilePoller::AbstractFilePoller inherits FSEvents::FSWatcher {
+    
+    private {
+        string m_regexMask = ".*";
+        int m_reopts = 0;
+        list m_actions = (FSEvents::ADD, FSEvents::MODIFIED, );
+        
+        # optional info log closure
+        *code m_logInfo;
+
+        # optional detail log closure
+        *code m_logDetail;
+
+        # optional debug log closure
+        *code m_logDebug;
+    }
+    
+    constructor(hash options) {
+        
+        if (exists options.log_info)
+            m_logInfo = options.log_info;
+        if (exists options.log_detail)
+            m_logDetail = options.log_detail;
+        if (exists options.log_debug)
+            m_logDebug = options.log_debug;
+
+        if (exists options.regex_mask && exists options.mask)
+            throw "FILEPOLLER-ERROR", "regex_mask and mask options cannot be used together";
+        else if (exists options.regex_mask) {
+            m_regexMask = options.regex_mask;
+            if (exists options.reopts)
+                m_reopts = options.reopts;
+        }
+        else if (exists options.mask)
+            setMask(options.mask);
+        
+        if (exists options.actions)
+            m_actions = options.actions;
+
+        string pth = options.path;
+        if (!exists options.path)
+            throw "FILEPOLLER-ERROR", "Options must have 'path' specified";
+
+        bool recursive = exists options.recursive ? options.recursive : False;
+        addPath(pth, recursive);
+
+        initialRun(options.path);
+    }
+    
+    #! converts a glob mask into a regex
+    private setMask(string mask) {
+        m_regexMask = mask;
+        # replace . -> \.
+        m_regexMask =~ s/\./\\./g;
+        # replace ? -> .
+        m_regexMask =~ s/\?/./g;
+        # replace * -> .*
+        m_regexMask =~ s/\*/.*/g;
+        m_regexMask = sprintf("^%s$", m_regexMask);
+    }
+    
+    #! calls the \c "log_info" @ref closure "closure" or @ref call_reference "call reference" with important information
+    private logInfo(string fmt) {
+        if (m_logInfo)
+            call_function(m_logInfo, vsprintf(fmt, argv));
+    }
+
+    #! calls the \c "log_detail" @ref closure "closure" or @ref call_reference "call reference" with detail information
+    private logDetail(string fmt) {
+        if (m_logDetail)
+            call_function(m_logDetail, vsprintf(fmt, argv));
+    }
+
+    #! calls the \c "log_debug" @ref closure "closure" or @ref call_reference "call reference" with verbose debugging information
+    private logDebug(string fmt) {
+        if (m_logDebug)
+            call_function(m_logDebug, vsprintf(fmt, argv));
+    }
+
+    event(int id, string dir, string fname, int action, string oldfilename) {
+        if (isAllowed(dir, fname, action)) {
+            logDebug("File event: dir: %s, fname: %s, action: %d, oldfilename: %s", dir, fname, action, oldfilename);
+            fileEvent(dir, fname, action, oldfilename);
+        }
+    }
+    
+    private bool isAllowed(string dir, string fname, int action) {
+        if (!inlist(action, m_actions))
+            return False;
+        
+        if (!fname.regex(m_regexMask, m_reopts))
+            return False;
+
+        string fullpath = dir + "/" + fname;
+        return is_file(fullpath) && is_readable(fullpath);
+    }
+    
+    private initialRun(string path) {
+        Dir d();
+        if (!d.chdir(path))
+            throw "FILEPOLLER-ERROR", sprintf("Directory %s does not exist", path);
+
+        logDebug("initialRun() called for path: %s", path);
+        ListIterator it(d.list(m_regexMask));
+        while (it.next()) {
+            event(0, path, it.getValue(), FSEvents::MODIFIED, "");
+        }
+        logDebug("initialRun() finished for path: %s", path);
+    }
+
+    abstract fileEvent(string dirname, string filename, int action, string oldfilename);
+        
+} # class AbstractFilePoller
+
+
+#! TODO/FIXME
+public class FilePoller::AbstractDelayedFilePoller inherits FilePoller::AbstractFilePoller {
+    
+    private {
+        hash m_cache;
+        int m_minage = 600;
+
+        int m_sleepSecs = 30;
+        *code m_sleep;
+        
+        Mutex m_mutex();
+        Counter m_counter();
+        
+        bool m_run = False;
+        int m_tid = -1;
+        *code m_startThread;
+    }
+    
+    constructor(hash options) : FilePoller::AbstractFilePoller(options) {
+        if (exists options.minage)
+            m_minage = int(options.minage);
+
+        if (exists options.sleep_time && options.sleep_time < 1)
+            throw "FILEPOLLER-ERROR", sprintf("poll_interval cannot be <= 0 (val: %d)", options.poll_interval);
+
+        if (exists options.sleep_time)
+            m_sleepSecs = int(options.sleep_time);
+
+%ifdef PO_NO_THREAD_CONTROL
+        if (!exists options.start_thread)
+            throw "FILEPOLLER-ERROR", "Mandatory option start_thread is not defined";
+
+        if (!exists oprions.sleep)
+            throw "FILEPOLLER-ERROR", "Mandatory option sleep is not defined";
+%endif
+
+        if (exists options.start_thread)
+            m_startThread = options.start_thread;
+
+        if (exists options.sleep)
+            m_sleep = options.sleep;
+
+    }
+
+    event(int id, string dir, string fname, int action, string oldfilename) {
+        if (!isAllowed(dir, fname, action))
+            return;
+        
+        string fullpath = dir + "/" + fname;
+        logDebug("File event queued: dir: %s, fname: %s, action: %d, oldfilename: %s", dir, fname, action, oldfilename);
+        AutoLock al(m_mutex);
+        m_cache{fullpath} = ("dir" : dir, "fname" : fname, "action" : action, "oldfilename" : oldfilename);
+    }
+    
+    #! starts polling in the background; returns the thread ID of the polling thread
+    /** if polling had already been started, then the thread ID of the polling thread is 
+        returned immediately
+    */
+    int start() {
+        AutoLock al(m_mutex);
+
+        if (m_run)
+            return m_tid;
+
+        m_run = True;
+        m_counter.inc();
+
+%ifdef PO_NO_THREAD_CONTROL
+        return call_function(m_startThread, \runBackground());
+%else
+        return m_startThread ? call_function(m_startThread, \runBackground()) : background runBackground();
+%endif
+    }
+    
+    #! stops the polling operation, returns when the polling operation has been stopped
+    /** if polling was not in progress then this method returns immediately
+
+        @throw THREAD-ERROR this exception is thrown if this method is called from the event thread since it would result in a deadlock
+    */
+    stop() {
+        m_run = False;
+        m_counter.waitForZero();
+    }
+    
+    private runBackground() {
+        on_exit m_counter.dec();
+        
+        while (m_run) {
+            
+            date dtnow = now();
+
+            HashIterator it(m_cache);
+            while (it.next()) {
+                hash st = hstat(it.getKey());
+                if ( (dtnow - st.mtime).durationSeconds() < m_minage ) {
+                    logDebug("file %y is not old enough (minage: %d, current age: %d)", it.getKey(), m_minage, (dtnow - st.mtime).durationSeconds());
+                    continue;
+                }
+
+                # process the file
+                {
+                    AutoLock al(m_mutex);
+                    hash vals = it.getValue();
+                    logDebug("delayed event: %s -> %n", it.getKey(), vals);
+                    fileEvent(vals.dir, vals.fname, vals.action, vals.oldfilename);
+                    m_cache -= it.getKey();
+                }
+            }
+            
+            if (m_run)
+                self.sleep(m_sleepSecs);
+        }
+    }
+    
+    #! sleeps for the specificed number of seconds
+    private sleep(softint secs) {
+%ifdef PO_NO_PROCESS_CONTROL
+        call_function(m_sleep, m_sleepSecs);
+%else
+        m_sleep ? call_function(m_sleep, m_sleepSecs) : Qore::sleep(m_sleepSecs);
+%endif
+    }
+        
+} # class AbstractFilePoller

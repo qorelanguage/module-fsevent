@@ -85,6 +85,8 @@ else ()
     )
 endif ()
 
+set(EFSW_QMOD qlib/FilePoller.qm)
+
 
 add_definitions(-DUSE_UTF8)
 
@@ -95,6 +97,7 @@ SET (module_name "fsevent")
 add_library(${module_name} SHARED ${CPP_SRC} ${QPP_SOURCES} ${EFSW_SRC})
 
 qore_binary_module(${module_name} "${VERSION_MAJOR}.${VERSION_MINOR}.${VERSION_PATCH}")
+qore_user_modules(${EFSW_QMOD})
 
 qore_dist("${VERSION_MAJOR}.${VERSION_MINOR}.${VERSION_PATCH}")
 
