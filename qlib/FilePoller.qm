@@ -87,8 +87,9 @@ public class FilePoller::AbstractFilePoller inherits FSEvents::FSWatcher {
             throw "FILEPOLLER-ERROR", "regex_mask and mask options cannot be used together";
         else if (exists options.regex_mask) {
             m_regexMask = options.regex_mask;
-            if (exists options.reopts)
+            if (exists options.reopts) {
                 m_reopts = options.reopts;
+            }
         }
         else if (exists options.mask)
             setMask(options.mask);
@@ -114,8 +115,8 @@ public class FilePoller::AbstractFilePoller inherits FSEvents::FSWatcher {
         # replace ? -> .
         m_regexMask =~ s/\?/./g;
         # replace * -> .*
-        m_regexMask =~ s/\*/.*/g;
-        m_regexMask = sprintf("^%s$", m_regexMask);
+        m_regexMask =~ s/\*/.*/g;                   #//;# this comment is only needed for emacs' broken qore-mode :(
+        m_regexMask = sprintf("^%s$", m_regexMask); #"; # this comment is only needed for emacs' broken qore-mode :(
     }
     
     #! calls the \c "log_info" @ref closure "closure" or @ref call_reference "call reference" with important information
@@ -176,7 +177,7 @@ public class FilePoller::AbstractFilePoller inherits FSEvents::FSWatcher {
 public class FilePoller::AbstractDelayedFilePoller inherits FilePoller::AbstractFilePoller {
     
     private {
-        hash m_cache;
+        hash m_cache = hash();
         int m_minage = 600;
 
         int m_sleepSecs = 30;
@@ -204,7 +205,7 @@ public class FilePoller::AbstractDelayedFilePoller inherits FilePoller::Abstract
         if (!exists options.start_thread)
             throw "FILEPOLLER-ERROR", "Mandatory option start_thread is not defined";
 
-        if (!exists oprions.sleep)
+        if (!exists options.sleep)
             throw "FILEPOLLER-ERROR", "Mandatory option sleep is not defined";
 %endif
 
@@ -231,16 +232,20 @@ public class FilePoller::AbstractDelayedFilePoller inherits FilePoller::Abstract
         returned immediately
     */
     int start() {
-        AutoLock al(m_mutex);
+        {
+            AutoLock al(m_mutex);
 
-        if (m_run)
-            return m_tid;
+            if (m_run)
+                return m_tid;
 
-        m_run = True;
-        m_counter.inc();
+            m_run = True;
+            m_counter.inc();
+        }
 
 %ifdef PO_NO_THREAD_CONTROL
-        return call_function(m_startThread, \runBackground());
+        m_tid = call_function(m_startThread, \runBackground());
+        m_counter.waitForZero();
+        return m_tid;
 %else
         return m_startThread ? call_function(m_startThread, \runBackground()) : background runBackground();
 %endif
@@ -253,6 +258,7 @@ public class FilePoller::AbstractDelayedFilePoller inherits FilePoller::Abstract
     */
     stop() {
         m_run = False;
+        m_counter.dec();
         m_counter.waitForZero();
     }
     
@@ -260,7 +266,6 @@ public class FilePoller::AbstractDelayedFilePoller inherits FilePoller::Abstract
         on_exit m_counter.dec();
         
         while (m_run) {
-            
             date dtnow = now();
 
             HashIterator it(m_cache);
@@ -280,12 +285,13 @@ public class FilePoller::AbstractDelayedFilePoller inherits FilePoller::Abstract
                     m_cache -= it.getKey();
                 }
             }
-            
-            if (m_run)
+
+            if (m_run) {
                 self.sleep(m_sleepSecs);
+            }
         }
     }
-    
+
     #! sleeps for the specificed number of seconds
     private sleep(softint secs) {
 %ifdef PO_NO_PROCESS_CONTROL
