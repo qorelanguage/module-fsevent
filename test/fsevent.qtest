@@ -1,0 +1,108 @@
+#!/usr/bin/env qore
+#
+# simple run - one thread, one file:
+# qore fsevent.qtest
+#
+# stress test - X threads, Y iterations=files
+# qore fsevent.qtest --threads=X Y
+# example:
+# qore fsevent.qtest --threads=100 500
+#
+# consult UnitTest documentation for more options available
+#
+
+%requires fsevent
+%requires UnitTest
+
+our UnitTest $ut();
+our Dir $tmp();
+our hash $result;
+our Counter $counter();
+our string $subdir = sprintf("fsevent-unittest-pid_%d", getpid());
+
+# create an unique named subdir in the TEMP directory.
+# And remove it after the test
+$tmp.chdir($ut.tmpLocation());
+$tmp.mkdir($subdir);
+$tmp.chdir($subdir);
+on_exit {
+    $tmp.chdir("..");
+    $tmp.rmdir($subdir);
+}
+
+
+class Watcher inherits public FSWatcher
+{
+    constructor() : FSWatcher() {
+    }
+
+    nothing event(int $id, string $dir, string $fname, int $action, string $oldFname) {
+        $ut.ok(exists $result.$fname{ACTION_MAP.$action},
+               sprintf("Qore FS event: %d, %s, %s, %s(%d), %s\n",
+                       $id, $dir, $fname, ACTION_MAP.$action, $action, $oldFname
+                      )
+              );
+        delete $result.$fname{ACTION_MAP.$action};
+    }
+
+} # class Watcher
+
+# let's try to find unique file name
+our hash $fnames;
+sub get_tmp_fname() {
+    my int $tid = gettid();
+    if (!exists $fnames.$tid)
+        $fnames.$tid = 0;
+
+    $fnames.$tid++;
+    return sprintf("tid%d_%d.txt", $tid, $fnames.$tid);
+}
+
+
+# run the add/modify/delete actions with one file for each thread "iters" time
+sub test_loop() {
+    $counter.inc();
+
+    on_exit {
+        $counter.dec();
+    }
+
+    my int $ix = $ut.option("iters");
+
+    while ($ix) {
+        $ix--;
+
+        my string $fname = get_tmp_fname();
+
+        $result.$fname."ADD" = True;
+        my File $f = $tmp.openFile($fname, O_CREAT | O_TRUNC | O_WRONLY, 0644);
+
+        $result.$fname."MODIFIED" = True;
+        $f.write('lorem ipsum');
+
+        $f.close();
+
+        $result.$fname."DELETE" = True;
+        $tmp.removeFile($fname);
+    }
+}
+
+
+my Watcher $fw();
+my int $id = $fw.addPath($tmp.path(), True);
+
+if (!$ut.option("threads")) {
+    test_loop();
+}
+else {
+    for (my int $i = 0; $i < $ut.option("threads"); $i++) {
+        background test_loop();
+    }
+}
+
+$counter.waitForZero();
+# wait for threads in Watcher to be finished
+sleep(3);
+
+$fw.removePath($tmp.path());
+

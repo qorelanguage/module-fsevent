@@ -1,4 +1,5 @@
 #include <efsw/WatcherWin32.hpp>
+#include <efsw/String.hpp>
 
 #if EFSW_PLATFORM == EFSW_PLATFORM_WIN32
 
@@ -8,14 +9,17 @@ namespace efsw
 /// Unpacks events and passes them to a user defined callback.
 void CALLBACK WatchCallback(DWORD dwErrorCode, DWORD dwNumberOfBytesTransfered, LPOVERLAPPED lpOverlapped)
 {
-	TCHAR szFile[MAX_PATH];
+	char szFile[MAX_PATH];
 	PFILE_NOTIFY_INFORMATION pNotify;
 	WatcherStructWin32 * tWatch = (WatcherStructWin32*) lpOverlapped;
 	WatcherWin32 * pWatch = tWatch->Watch;
 	size_t offset = 0;
 
-	if(dwNumberOfBytesTransfered == 0)
+	if (dwNumberOfBytesTransfered == 0)
+	{
+		RefreshWatch(tWatch); // If dwNumberOfBytesTransfered == 0, it means the buffer overflowed (too many changes between GetOverlappedResults calls). Those events are lost, but at least we can refresh so subsequent changes are seen again.
 		return;
+	}
 
 	if (dwErrorCode == ERROR_SUCCESS)
 	{
@@ -26,19 +30,10 @@ void CALLBACK WatchCallback(DWORD dwErrorCode, DWORD dwNumberOfBytesTransfered, 
 			pNotify = (PFILE_NOTIFY_INFORMATION) &pWatch->mBuffer[offset];
 			offset += pNotify->NextEntryOffset;
 
-#			if defined(UNICODE)
-			{
-				lstrcpynW(szFile, pNotify->FileName,
-					min(MAX_PATH, pNotify->FileNameLength / sizeof(WCHAR) + 1));
-			}
-#			else
-			{
-				int count = WideCharToMultiByte(CP_UTF8, 0, pNotify->FileName,
-					pNotify->FileNameLength / sizeof(WCHAR),
-					szFile, MAX_PATH - 1, NULL, NULL);
-				szFile[count] = TEXT('\0');
-			}
-#			endif
+			int count = WideCharToMultiByte(CP_UTF8, 0, pNotify->FileName,
+				pNotify->FileNameLength / sizeof(WCHAR),
+				szFile, MAX_PATH - 1, NULL, NULL);
+			szFile[count] = TEXT('\0');
 
 			std::string nfile( szFile );
 
@@ -69,7 +64,7 @@ void CALLBACK WatchCallback(DWORD dwErrorCode, DWORD dwNumberOfBytesTransfered, 
 }
 
 /// Refreshes the directory monitoring.
-bool RefreshWatch(WatcherStructWin32* pWatch, bool _clear)
+bool RefreshWatch(WatcherStructWin32* pWatch)
 {
 	return ReadDirectoryChangesW(
 				pWatch->Watch->DirHandle,
@@ -79,7 +74,7 @@ bool RefreshWatch(WatcherStructWin32* pWatch, bool _clear)
 				pWatch->Watch->NotifyFilter,
 				NULL,
 				&pWatch->Overlapped,
-				_clear ? 0 : WatchCallback
+				NULL
 	) != 0;
 }
 
@@ -94,7 +89,7 @@ void DestroyWatch(WatcherStructWin32* pWatch)
 
 		CancelIo(tWatch->DirHandle);
 
-		RefreshWatch(pWatch, true);
+		RefreshWatch(pWatch);
 
 		if (!HasOverlappedIoCompleted(&pWatch->Overlapped))
 		{
@@ -103,14 +98,14 @@ void DestroyWatch(WatcherStructWin32* pWatch)
 
 		CloseHandle(pWatch->Overlapped.hEvent);
 		CloseHandle(pWatch->Watch->DirHandle);
-		efSAFE_DELETE( pWatch->Watch->DirName );
+		efSAFE_DELETE_ARRAY( pWatch->Watch->DirName );
 		efSAFE_DELETE( pWatch->Watch );
 		HeapFree(GetProcessHeap(), 0, pWatch);
 	}
 }
 
 /// Starts monitoring a directory.
-WatcherStructWin32* CreateWatch(LPCTSTR szDirectory, bool recursive, DWORD NotifyFilter)
+WatcherStructWin32* CreateWatch(LPCWSTR szDirectory, bool recursive, DWORD NotifyFilter)
 {
 	WatcherStructWin32 * tWatch;
 	size_t ptrsize = sizeof(*tWatch);
@@ -119,7 +114,7 @@ WatcherStructWin32* CreateWatch(LPCTSTR szDirectory, bool recursive, DWORD Notif
 	WatcherWin32 * pWatch = new WatcherWin32();
 	tWatch->Watch = pWatch;
 
-	pWatch->DirHandle = CreateFile(
+	pWatch->DirHandle = CreateFileW(
 							szDirectory,
 							GENERIC_READ,
 							FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,

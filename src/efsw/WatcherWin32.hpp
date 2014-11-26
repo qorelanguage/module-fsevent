@@ -6,7 +6,6 @@
 
 #if EFSW_PLATFORM == EFSW_PLATFORM_WIN32
 
-#define _WIN32_WINNT 0x0550
 #include <windows.h>
 
 #ifdef EFSW_COMPILER_MSVC
@@ -38,13 +37,13 @@ class cLastModifiedEvent
 		std::string fileName;
 };
 
-bool RefreshWatch(WatcherStructWin32* pWatch, bool _clear = false);
+bool RefreshWatch(WatcherStructWin32* pWatch);
 
 void CALLBACK WatchCallback(DWORD dwErrorCode, DWORD dwNumberOfBytesTransfered, LPOVERLAPPED lpOverlapped);
 
 void DestroyWatch(WatcherStructWin32* pWatch);
 
-WatcherStructWin32* CreateWatch(LPCTSTR szDirectory, bool recursive, DWORD NotifyFilter);
+WatcherStructWin32* CreateWatch(LPCWSTR szDirectory, bool recursive, DWORD NotifyFilter);
 
 class WatcherWin32 : public Watcher
 {
@@ -62,7 +61,7 @@ class WatcherWin32 : public Watcher
 
 		WatcherStructWin32 * Struct;
 		HANDLE DirHandle;
-		BYTE mBuffer[32 * 1024];
+		BYTE mBuffer[63 * 1024]; // do NOT make this bigger than 64K because it will fail if the folder being watched is on the network! (see http://msdn.microsoft.com/en-us/library/windows/desktop/aa365465(v=vs.85).aspx)
 		LPARAM lParam;
 		DWORD NotifyFilter;
 		bool StopNow;

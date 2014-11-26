@@ -1,6 +1,17 @@
 #include <efsw/FileInfo.hpp>
 #include <efsw/FileSystem.hpp>
+#include <efsw/String.hpp>
+
+#ifndef _DARWIN_FEATURE_64_BIT_INODE
+#define _DARWIN_FEATURE_64_BIT_INODE
+#endif
+
+#ifndef _FILE_OFFSET_BITS
+#define _FILE_OFFSET_BITS 64
+#endif
+
 #include <sys/stat.h>
+
 #include <limits.h>
 #include <stdlib.h>
 
@@ -94,8 +105,13 @@ void FileInfo::getInfo()
 		FileSystem::dirRemoveSlashAtEnd( Filepath );
 	}
 
+	#if EFSW_PLATFORM != EFSW_PLATFORM_WIN32
 	struct stat st;
 	int res = stat( Filepath.c_str(), &st );
+	#else
+	struct _stat st;
+	int res = _wstat( String::fromUtf8( Filepath ).toWideString().c_str(), &st );
+	#endif
 
 	if ( 0 == res )
 	{
@@ -103,9 +119,7 @@ void FileInfo::getInfo()
 		OwnerId				= st.st_uid;
 		GroupId				= st.st_gid;
 		Permissions			= st.st_mode;
-		#if EFSW_PLATFORM != EFSW_PLATFORM_WIN32
 		Inode				= st.st_ino;
-		#endif
 	}
 
 	if ( slashAtEnd )
@@ -123,11 +137,12 @@ void FileInfo::getRealInfo()
 		FileSystem::dirRemoveSlashAtEnd( Filepath );
 	}
 
-	struct stat st;
 	#if EFSW_PLATFORM != EFSW_PLATFORM_WIN32
+	struct stat st;
 	int res = lstat( Filepath.c_str(), &st );
 	#else
-	int res = stat( Filepath.c_str(), &st );
+	struct _stat st;
+	int res = _wstat( String::fromUtf8( Filepath ).toWideString().c_str(), &st );
 	#endif
 
 	if ( 0 == res )
@@ -136,9 +151,7 @@ void FileInfo::getRealInfo()
 		OwnerId				= st.st_uid;
 		GroupId				= st.st_gid;
 		Permissions			= st.st_mode;
-		#if EFSW_PLATFORM != EFSW_PLATFORM_WIN32
 		Inode				= st.st_ino;
-		#endif
 	}
 
 	if ( slashAtEnd )
@@ -200,8 +213,27 @@ std::string FileInfo::linksTo()
 
 bool FileInfo::exists()
 {
+	bool slashAtEnd = FileSystem::slashAtEnd( Filepath );
+
+	if ( slashAtEnd )
+	{
+		FileSystem::dirRemoveSlashAtEnd(Filepath);
+	}
+
+#if EFSW_PLATFORM != EFSW_PLATFORM_WIN32
 	struct stat st;
-	return stat( Filepath.c_str(), &st ) == 0;
+	int res = stat( Filepath.c_str(), &st );
+#else
+	struct _stat st;
+	int res = _wstat( String::fromUtf8( Filepath ).toWideString().c_str(), &st );
+#endif
+
+	if (slashAtEnd)
+	{
+		FileSystem::dirAddSlashAtEnd(Filepath);
+	}
+
+	return 0 == res;
 }
 
 FileInfo& FileInfo::operator=( const FileInfo& Other )

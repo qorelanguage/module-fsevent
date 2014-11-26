@@ -25,5 +25,34 @@ const MODIFIED = 3;
 const MOVED = 4;
 //efsw::Actions::Moved;
 
+//! String representation of ADD
+const ST_ADD = "ADD";
+
+//! String representation of DELETE
+const ST_DELETE = "DELETE";
+
+//! String representation of MODIFIED
+const ST_MODIFIED = "MODIFIED";
+
+//! String representation of MOVED
+const ST_MOVED = "MOVED";
+
+//! A helper map of int - string representation of the file action
+const ACTION_MAP = (
+        1 : "ADD",
+        2 : "DELETE",
+        3 : "MODIFIED",
+        4 : "MOVED",
+    );
+
+//! A helper map of string - int representation of the file action
+const ACTION_RMAP = (
+        "ADD" : 1,
+        "DELETE" : 2,
+        "MODIFIED" : 3,
+        "MOVED" : 4,
+    );
+
+
 //@}
 

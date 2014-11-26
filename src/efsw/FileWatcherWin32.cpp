@@ -1,6 +1,7 @@
 #include <efsw/FileWatcherWin32.hpp>
 #include <efsw/FileSystem.hpp>
 #include <efsw/System.hpp>
+#include <efsw/String.hpp>
 
 #if EFSW_PLATFORM == EFSW_PLATFORM_WIN32
 
@@ -19,6 +20,8 @@ FileWatcherWin32::~FileWatcherWin32()
 {
 	WatchVector::iterator iter = mWatches.begin();
 
+	mWatchesLock.lock();
+
 	for(; iter != mWatches.end(); ++iter)
 	{
 		DestroyWatch((*iter));
@@ -28,6 +31,8 @@ FileWatcherWin32::~FileWatcherWin32()
 	mWatches.clear();
 
 	mInitOK = false;
+
+	mWatchesLock.unlock();
 
 	efSAFE_DELETE( mThread );
 }
@@ -51,7 +56,9 @@ WatchID FileWatcherWin32::addWatch(const std::string& directory, FileWatchListen
 
 	WatchID watchid = ++mLastWatchID;
 
-	WatcherStructWin32 * watch = CreateWatch( dir.c_str(), recursive,		FILE_NOTIFY_CHANGE_CREATION |
+	mWatchesLock.lock();
+
+	WatcherStructWin32 * watch = CreateWatch( String::fromUtf8( dir ).toWideString().c_str(), recursive,		FILE_NOTIFY_CHANGE_CREATION |
 																			FILE_NOTIFY_CHANGE_LAST_WRITE |
 																			FILE_NOTIFY_CHANGE_FILE_NAME |
 																			FILE_NOTIFY_CHANGE_DIR_NAME
@@ -74,7 +81,6 @@ WatchID FileWatcherWin32::addWatch(const std::string& directory, FileWatchListen
 	watch->Watch->DirName = new char[dir.length()+1];
 	strcpy(watch->Watch->DirName, dir.c_str());
 
-	mWatchesLock.lock();
 	mHandles.push_back( watch->Watch->DirHandle );
 	mWatches.push_back( watch );
 	mWatchesLock.unlock();
@@ -158,50 +164,37 @@ void FileWatcherWin32::run()
 	{
 		if ( !mHandles.empty() )
 		{
-			DWORD wait_result = WaitForMultipleObjectsEx( mHandles.size(), &mHandles[0], FALSE, 1000, FALSE );
+			mWatchesLock.lock();
 
-			switch ( wait_result )
+			for ( std::size_t i = 0; i < mWatches.size(); i++ )
 			{
-				case WAIT_ABANDONED_0:
-				case WAIT_ABANDONED_0 + 1:
-					//"Wait abandoned."
-					break;
-				case WAIT_TIMEOUT:
-					break;
-				case WAIT_FAILED:
-					//"Wait failed."
-					break;
-				default:
+				WatcherStructWin32 * watch = mWatches[ i ];
+
+				// If the overlapped struct was cancelled ( because the creator thread doesn't exists anymore ),
+				// we recreate the overlapped in the current thread and refresh the watch
+				if ( /*STATUS_CANCELED*/0xC0000120 == watch->Overlapped.Internal )
 				{
-					mWatchesLock.lock();
-
-					// Don't trust the result - multiple objects may be signalled during a single call.
-					if ( wait_result >=  WAIT_OBJECT_0 && wait_result < WAIT_OBJECT_0 + mWatches.size() )
-					{
-						WatcherStructWin32 * watch = mWatches[ wait_result ];
-
-						// First ensure that the handle is the same, this means that the watch was not removed.
-						if ( mHandles[ wait_result ] == watch->Watch->DirHandle && HasOverlappedIoCompleted( &watch->Overlapped ) )
-						{
-							DWORD bytes;
-
-							if ( GetOverlappedResult( watch->Watch->DirHandle, &watch->Overlapped, &bytes, FALSE ) )
-							{
-								WatchCallback( ERROR_SUCCESS, bytes, &watch->Overlapped );
-							}
-							else
-							{
-								//"GetOverlappedResult failed."
-							}
-						}
-					}
-					else
-					{
-						//"Unknown return value from WaitForMultipleObjectsEx."
-					}
-
-					mWatchesLock.unlock();
+					watch->Overlapped = OVERLAPPED();
+					RefreshWatch(watch);
 				}
+
+				// First ensure that the handle is the same, this means that the watch was not removed.
+				if ( HasOverlappedIoCompleted( &watch->Overlapped ) && mHandles[ i ] == watch->Watch->DirHandle )
+				{
+					DWORD bytes;
+
+					if ( GetOverlappedResult( watch->Watch->DirHandle, &watch->Overlapped, &bytes, FALSE ) )
+					{
+						WatchCallback( ERROR_SUCCESS, bytes, &watch->Overlapped );
+					}
+				}
+			}
+
+			mWatchesLock.unlock();
+
+			if ( mInitOK )
+			{
+				System::sleep( 10 );
 			}
 		}
 		else

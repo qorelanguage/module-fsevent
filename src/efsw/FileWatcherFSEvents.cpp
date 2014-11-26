@@ -55,10 +55,15 @@ void FileWatcherFSEvents::FSEventCallback(	ConstFSEventStreamRef streamRef,
 {
 	WatcherFSEvents * watcher = static_cast<WatcherFSEvents*>( userData );
 
+	std::vector<FSEvent> events;
+	events.reserve( numEvents );
+
 	for ( size_t i = 0; i < numEvents; i++ )
 	{
-		watcher->handleAction( std::string( ((char**)eventPaths)[i] ), (long)eventFlags[i], (Uint64)eventIds[i] );
+		events.push_back( FSEvent( std::string( ((char**)eventPaths)[i] ), (long)eventFlags[i], (Uint64)eventIds[i] ) );
 	}
+
+	watcher->handleActions( events );
 
 	watcher->process();
 
@@ -95,8 +100,6 @@ FileWatcherFSEvents::~FileWatcherFSEvents()
 	{
 		CFRunLoopStop( mRunLoopRef );
 	}
-	
-	mThread->wait();
 
 	efSAFE_DELETE( mThread );
 }
@@ -110,6 +113,17 @@ WatchID FileWatcherFSEvents::addWatch( const std::string& directory, FileWatchLi
 	}
 	
 	std::string dir( directory );
+
+	FileInfo fi( dir );
+
+	if ( !fi.isDirectory() )
+	{
+		return Errors::Log::createLastError( Errors::FileNotFound, dir );
+	}
+	else if ( !fi.isReadable() )
+	{
+		return Errors::Log::createLastError( Errors::FileNotReadable, dir );
+	}
 
 	FileSystem::dirAddSlashAtEnd( dir );
 
