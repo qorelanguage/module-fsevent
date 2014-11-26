@@ -73,6 +73,7 @@ sub test_loop() {
         $ix--;
 
         my string $fname = get_tmp_fname();
+        my string $fname1 = $fname + ".new";
 
         $result.$fname."ADD" = True;
         my File $f = $tmp.openFile($fname, O_CREAT | O_TRUNC | O_WRONLY, 0644);
@@ -81,6 +82,12 @@ sub test_loop() {
         $f.write('lorem ipsum');
 
         $f.close();
+
+        $result.$fname1."MOVED" = True;
+        rename($tmp.path() + "/" + $fname, $tmp.path() + "/" +$fname1);
+
+        $result.$fname."MOVED" = True;
+        rename($tmp.path() + "/" + $fname1, $tmp.path() + "/" +$fname);
 
         $result.$fname."DELETE" = True;
         $tmp.removeFile($fname);
