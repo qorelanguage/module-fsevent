@@ -97,6 +97,13 @@ FileInfo::FileInfo( const std::string& filepath, bool linkInfo ) :
 
 void FileInfo::getInfo()
 {
+	#if EFSW_PLATFORM == EFSW_PLATFORM_WIN32
+	if ( Filepath.size() == 3 && Filepath[1] == ':' && Filepath[2] == FileSystem::getOSSlash() )
+	{
+		Filepath += FileSystem::getOSSlash();
+	}
+	#endif
+
 	/// Why i'm doing this? stat in mingw32 doesn't work for directories if the dir path ends with a path slash
 	bool slashAtEnd = FileSystem::slashAtEnd( Filepath );
 
@@ -201,11 +208,14 @@ std::string FileInfo::linksTo()
 	{
 		char * ch = realpath( Filepath.c_str(), NULL);
 
-		std::string tstr( ch );
+		if ( NULL != ch )
+		{
+			std::string tstr( ch );
 
-		free( ch );
+			free( ch );
 
-		return tstr;
+			return tstr;
+		}
 	}
 #endif
 	return std::string("");
