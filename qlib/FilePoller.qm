@@ -45,7 +45,39 @@ module FilePoller {
 */
 
 /** @mainpage FilePoller Module
-    
+
+    Module \c FilePoller provides high level API to construct files/directories
+    monitors.
+
+    Available classes:
+     - FilePoller::AbstractFilePoller providing ad-hoc events whenever file is changed
+     - FilePoller::AbstractDelayedFilePoller providing delayed events of file changes to implement stuff like "give me the file change if the last modification time is not changed for 10 minutes"
+
+    @section file_poller_constructor_hash Constructor Option Hash
+
+    This is a list with optional settings for all AbstractFilePoller based
+    classes
+
+    |!Option|!Type|!Mandatory|!Description
+    |\c mask|\c string|N|A file name glob/shell mask @ref file_poller_masks
+    |\c regex_mask|\c string|N|A regex file name mask @ref file_poller_masks
+    |\c reopts|\c string|N|A regex options for \c regex_mask @ref file_poller_masks
+    |\c actions|\c list|N|List of actions to be monitored. By default it's \c ADD, \c MODIFIED @ref fsevent_constants
+    |\c recursive|\c bool|N|Flag if should be monitored only current directory (\c False) or all subdirectories (\c True). \c False is default
+    |\c disable_initial_run|\c bool|N|Flag if all matching files should be scanned in constructor to be reported with \c MODIFIED event
+    |\c log_info|\c *code|N|An optional code/function for logging
+    |\c log_detail|\c *code|N|An optional code/function for logging
+    |\c log_debug|\c *code|N|An optional code/function for logging
+
+    @section file_poller_masks File Name Masks and Matching
+
+    Any AbstractFilePoller can be configured to match file names by:
+     - Qore regex based mask. RQore regex options can be provided in \c reopts option hash key.
+     - file system standard mask (glob, shell, MS Windows cmd.exe)
+
+    User can specify one style of mask in the constructor. An exception "\c FILEPOLLER-ERROR - regex_mask and mask options cannot be used together" is raised whenewer both masks are defined.
+
+    Default value for matching is to take all file names.
 */
 
 #! main module namespace
@@ -56,12 +88,15 @@ public namespace FilePoller {
 }
 
 
-#! TODO/FIXME
+#! Ad-hoc file notification handler
 public class FilePoller::AbstractFilePoller inherits FSEvents::FSWatcher {
     
     private {
+        # defauilt regexp mask
         string m_regexMask = ".*";
         int m_reopts = 0;
+
+        # default list of used FS actions
         list m_actions = (FSEvents::ADD, FSEvents::MODIFIED, );
         
         # optional info log closure
@@ -74,8 +109,12 @@ public class FilePoller::AbstractFilePoller inherits FSEvents::FSWatcher {
         *code m_logDebug;
     }
     
-    constructor(hash options) {
-        
+    #! Construct a file poller
+    /** @param path a string with full path to the directory to be monitored
+        @param options a hash with features settings @ref file_poller_constructor_hash
+     */
+    constructor(string path, *hash options) {
+
         if (exists options.log_info)
             m_logInfo = options.log_info;
         if (exists options.log_detail)
@@ -97,17 +136,22 @@ public class FilePoller::AbstractFilePoller inherits FSEvents::FSWatcher {
         if (exists options.actions)
             m_actions = options.actions;
 
-        string pth = options.path;
-        if (!exists options.path)
-            throw "FILEPOLLER-ERROR", "Options must have 'path' specified";
-
         bool recursive = exists options.recursive ? options.recursive : False;
-        addPath(pth, recursive);
+        addPath(path, recursive);
 
-        initialRun(options.path);
+        if (!options.disable_initial_run)
+            initialRun(path);
     }
     
-    #! converts a glob mask into a regex
+    #! Set filesystem mask like in shell etc.
+    /*!
+        Converts a glob (standard filesystem) mask into a regex.
+        Example: *.*, *.txt, someprefix_*.csv
+
+        @ref file_poller_masks
+
+        @param mask a string with file name mask
+     */
     private setMask(string mask) {
         m_regexMask = mask;
         # replace . -> \.
@@ -137,7 +181,7 @@ public class FilePoller::AbstractFilePoller inherits FSEvents::FSWatcher {
             call_function(m_logDebug, vsprintf(fmt, argv));
     }
 
-    event(int id, string dir, string fname, int action, string oldfilename) {
+    private event(int id, string dir, string fname, int action, string oldfilename) {
         if (isAllowed(dir, fname, action)) {
             logDebug("File event: dir: %s, fname: %s, action: %d, oldfilename: %s", dir, fname, action, oldfilename);
             fileEvent(dir, fname, action, oldfilename);
@@ -154,7 +198,8 @@ public class FilePoller::AbstractFilePoller inherits FSEvents::FSWatcher {
         string fullpath = dir + "/" + fname;
         return is_file(fullpath) && is_readable(fullpath);
     }
-    
+
+    #! Called in the constructor to get already existing files/events
     private initialRun(string path) {
         Dir d();
         if (!d.chdir(path))
@@ -168,12 +213,38 @@ public class FilePoller::AbstractFilePoller inherits FSEvents::FSWatcher {
         logDebug("initialRun() finished for path: %s", path);
     }
 
+    #! Abstract method called whenever soem filesystem event occurs.
+    /**
+        @param dirname string with path to the affected directory
+        @param filename string with affected file name
+        @param action int with action code @ref fsevent_constants
+        @param oldfilename string with original file name in case of action \c MOVED
+     */
     abstract fileEvent(string dirname, string filename, int action, string oldfilename);
         
 } # class AbstractFilePoller
 
 
-#! TODO/FIXME
+#! Delayed file notification handler
+/** The additional functionality of this class is to provide last modification timestamp
+    check for affected files. The \c fileEvent() method is invoked only if
+    the last modification timestamp is older than value specified
+    by @ref file_poller_delayed_constructor_hash key \c minage.
+
+    The example usecase can be when you need to communicate with applications
+    which cannot write files atomically so your code needs to assume all
+    is ready when the file is not modified in eg. 5 minutes.
+
+    Algorithm used:
+        - file events are registered in the internal cache (hash m_cache)
+          in form: file - ast modification timestamp
+        - there is a background thread running in the infinite loop until
+          the \c stop() method is called
+        - the background thread periodically checks the internal cache to
+          compare all timestamps with their validity against "minage" value
+        - the fileEvent() is invoked only when relative modification timestamp is
+          lesser then "minage" value
+     */
 public class FilePoller::AbstractDelayedFilePoller inherits FilePoller::AbstractFilePoller {
     
     private {
@@ -190,10 +261,24 @@ public class FilePoller::AbstractDelayedFilePoller inherits FilePoller::Abstract
         int m_tid = -1;
         *code m_startThread;
     }
-    
-    constructor(hash options) : FilePoller::AbstractFilePoller(options) {
+
+    #! Construct a file poller
+    /** @param path a string with full path to the directory to be monitored
+        @param options a hash with features settings @ref file_poller_constructor_hash and @ref file_poller_delayed_constructor_hash
+
+        @subsection file_poller_delayed_constructor_hash Delayed Constructor Option Hash
+
+        |!Option|!Type|!Mandatory|!Description
+        |\c minage|\c int|N|Delay time in seconds. Default value is 600 = 10 mins
+        |\c sleep_time|\c int|N|internal sleep interval between the queue check. Default value is 30 = 30s
+        |\c start_thread|\c *code|Y or N|Custom Qore::background like function. This option is mandatory if there is \c PO_NO_THREAD_CONTROL defined
+        |\c sleep|\c *code|Y or N|Custom Qore::sleep() like function. This option is mandatory if there is \c PO_NO_THREAD_CONTROL defined
+     */
+    constructor(string path, *hash options) : FilePoller::AbstractFilePoller(path, options) {
         if (exists options.minage)
             m_minage = int(options.minage);
+        if (m_minage < 1)
+            throw "FILEPOLLER-ERROR", sprintf("min_age cannot be < 1 (val: %d)", m_minage);
 
         if (exists options.sleep_time && options.sleep_time < 1)
             throw "FILEPOLLER-ERROR", sprintf("poll_interval cannot be <= 0 (val: %d)", options.poll_interval);
@@ -234,10 +319,8 @@ public class FilePoller::AbstractDelayedFilePoller inherits FilePoller::Abstract
     int start() {
         {
             AutoLock al(m_mutex);
-
             if (m_run)
                 return m_tid;
-
             m_run = True;
             m_counter.inc();
         }
@@ -257,13 +340,17 @@ public class FilePoller::AbstractDelayedFilePoller inherits FilePoller::Abstract
         @throw THREAD-ERROR this exception is thrown if this method is called from the event thread since it would result in a deadlock
     */
     stop() {
+        AutoLock al(m_mutex);
         m_run = False;
-        m_counter.dec();
+#        m_counter.dec();
         m_counter.waitForZero();
     }
     
     private runBackground() {
-        on_exit m_counter.dec();
+        on_exit {
+            AutoLock al(m_mutex);
+            m_counter.dec();
+        }
         
         while (m_run) {
             date dtnow = now();
@@ -287,15 +374,19 @@ public class FilePoller::AbstractDelayedFilePoller inherits FilePoller::Abstract
             }
 
             if (m_run) {
-                self.sleep(m_sleepSecs);
+                sleepImpl(m_sleepSecs);
             }
+
         }
     }
 
     #! sleeps for the specificed number of seconds
-    private sleep(softint secs) {
+    private sleepImpl(softint secs) {
 %ifdef PO_NO_PROCESS_CONTROL
-        call_function(m_sleep, m_sleepSecs);
+        if (!m_sleep)
+            throw "SLEEP-FUNCTION-MISSING", "Unspecified sleep function";
+
+#        call_function(m_sleep, m_sleepSecs);
 %else
         m_sleep ? call_function(m_sleep, m_sleepSecs) : Qore::sleep(m_sleepSecs);
 %endif
