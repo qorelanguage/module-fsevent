@@ -11,7 +11,7 @@
 %exec-class Main
 
 
-const ITERATIONS = 10;
+const ITERATIONS = 100;
 const THREADS = 10;
 
 

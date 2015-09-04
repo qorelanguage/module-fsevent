@@ -33,7 +33,7 @@ module FilePoller {
     license = "MIT";
 }
 
-%requires fsevent
+%requires(reexport) fsevent
 
 %new-style
 %require-types
@@ -181,7 +181,7 @@ public class FilePoller::AbstractFilePoller inherits FSEvents::FSWatcher {
             call_function(m_logDebug, vsprintf(fmt, argv));
     }
 
-    private event(int id, string dir, string fname, int action, string oldfilename) {
+    event(int id, string dir, string fname, int action, string oldfilename) {
         if (isAllowed(dir, fname, action)) {
             logDebug("File event: dir: %s, fname: %s, action: %d, oldfilename: %s", dir, fname, action, oldfilename);
             fileEvent(dir, fname, action, oldfilename);
@@ -191,12 +191,11 @@ public class FilePoller::AbstractFilePoller inherits FSEvents::FSWatcher {
     private bool isAllowed(string dir, string fname, int action) {
         if (!inlist(action, m_actions))
             return False;
-        
+
         if (!fname.regex(m_regexMask, m_reopts))
             return False;
 
-        string fullpath = dir + "/" + fname;
-        return is_file(fullpath) && is_readable(fullpath);
+        return True;
     }
 
     #! Called in the constructor to get already existing files/events
@@ -321,6 +320,7 @@ public class FilePoller::AbstractDelayedFilePoller inherits FilePoller::Abstract
             AutoLock al(m_mutex);
             if (m_run)
                 return m_tid;
+
             m_run = True;
             m_counter.inc();
         }
@@ -342,23 +342,22 @@ public class FilePoller::AbstractDelayedFilePoller inherits FilePoller::Abstract
     stop() {
         AutoLock al(m_mutex);
         m_run = False;
-#        m_counter.dec();
         m_counter.waitForZero();
     }
     
     private runBackground() {
         on_exit {
-            AutoLock al(m_mutex);
             m_counter.dec();
         }
         
         while (m_run) {
+
             date dtnow = now();
 
             HashIterator it(m_cache);
             while (it.next()) {
-                hash st = hstat(it.getKey());
-                if ( (dtnow - st.mtime).durationSeconds() < m_minage ) {
+                *hash st = hstat(it.getKey());
+                if ( st && (dtnow - st.mtime).durationSeconds() < m_minage ) {
                     logDebug("file %y is not old enough (minage: %d, current age: %d)", it.getKey(), m_minage, (dtnow - st.mtime).durationSeconds());
                     continue;
                 }
@@ -386,7 +385,7 @@ public class FilePoller::AbstractDelayedFilePoller inherits FilePoller::Abstract
         if (!m_sleep)
             throw "SLEEP-FUNCTION-MISSING", "Unspecified sleep function";
 
-#        call_function(m_sleep, m_sleepSecs);
+        call_function(m_sleep, m_sleepSecs);
 %else
         m_sleep ? call_function(m_sleep, m_sleepSecs) : Qore::sleep(m_sleepSecs);
 %endif

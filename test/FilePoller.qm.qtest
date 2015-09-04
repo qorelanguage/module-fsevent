@@ -1,0 +1,320 @@
+#!/usr/bin/env qore
+#
+%new-style
+
+%requires Util
+%requires QUnit
+%requires ../qlib/FilePoller.qm
+
+%exec-class Main
+
+
+const ITERATIONS = 10;
+const THREADS = 10;
+
+our *hash props;
+
+const DEFAULT_OPTS = (
+        "actions"       : ( FSEvents::ADD, FSEvents::MODIFIED, FSEvents::DELETE, FSEvents::MOVED, ),
+        "log_info"      : sub (string msg) { logger("LOG INFO", msg); },
+        "log_detail"    : sub (string msg) { logger("LOG DETAIL", msg); },
+        "log_debug"     : sub (string msg) { logger("LOG DEBUG", msg); },
+    );
+
+# let's try to find unique file name
+our hash fnames;
+synchronized sub get_tmp_fname() {
+    my int tid = gettid();
+    if (!exists fnames{tid})
+        fnames{tid} = 0;
+
+    fnames{tid}++;
+    return sprintf("tid%d_%d.txt", tid, fnames{tid});
+}
+
+# logging test handler
+sub logger(string loglevel, string msg) {
+    if (props.verbose)
+        printf("%s: %s\n", loglevel, msg);
+}
+
+# custom start thread test handler
+int sub custom_start_thread(any f) {
+    logger("LOG INFO", "custom_start_thread used");
+    return background f();
+}
+
+# custom sleep test handler
+sub custom_sleep(int s) {
+    logger("LOG INFO", "custom_sleep used");
+    Qore::sleep(s);
+}
+
+
+class TestFilePoller inherits public FilePoller::AbstractFilePoller
+{
+    private {
+        Main m_ut;
+    }
+
+    constructor(Main ut, string path, *hash opts) : FilePoller::AbstractFilePoller(path, opts) {
+        m_ut = ut;
+    }
+
+    nothing fileEvent(string dirname, string fname, int action, string oldfilename) {
+        logger("info", "start");
+        string am = ACTION_MAP{action};
+        string testname = fname + ": " + am;
+        code c = sub() {return exists m_ut.files{fname}{am}; };
+        m_ut.testAssertion(testname, c);
+        delete m_ut.files{fname}{am};
+
+        if (!m_ut.files{fname}.size()) {
+            delete m_ut.files{fname};
+        }
+    }
+
+}
+
+class TestDelayedFilePoller inherits public FilePoller::AbstractDelayedFilePoller
+{
+    private {
+        Main m_ut;
+    }
+
+    constructor(Main ut, string path, *hash opts) : FilePoller::AbstractDelayedFilePoller(path, opts) {
+        m_ut = ut;
+    }
+
+    nothing fileEvent(string dirname, string fname, int action, string oldfilename) {
+        string am = ACTION_MAP{action};
+        string testname = fname + ": " + am;
+        code c = sub() {return exists m_ut.files{fname}{am}; };
+        m_ut.testAssertion(testname, c);
+        delete m_ut.files{fname}{am};
+
+        if (!m_ut.files{fname}.size()) {
+            delete m_ut.files{fname};
+        }
+    }
+
+}
+
+public class Main inherits QUnit::Test {
+    private {
+        Dir m_dir();
+        string m_subdir = sprintf("fsevent-unittest-pid_%d", getpid());
+        Counter m_c();
+    }
+
+    public {
+        hash files;
+    }
+
+    constructor() : Test("FilePoller.qm", "1.0") {
+        props = m_options;
+
+#        addTestCase("AbstractFilePoller Single Thread - SingleInstance", \singleInstance(), NOTHING);
+#        addTestCase("AbstractFilePoller Single Thread - MultiInstance", \multiInstance(), NOTHING);
+#        addTestCase("AbstractFilePoller Multi Threads - MultiInstance", \multipleThreads(), NOTHING);
+
+#        addTestCase("AbstractDelayedFilePoller Single Thread - SingleInstance", \singleDelayedInstance(), NOTHING);
+        addTestCase("AbstractDelayedFilePoller Custom functions", \customFunctions(), NOTHING);
+#        addTestCase("AbstractDelayedFilePoller Single Thread - MultiInstance", \multiDelayedInstance(), NOTHING);
+#        addTestCase("AbstractDelayedFilePoller Multi Threads - MultiInstance", \multipleDelayedThreads(), NOTHING);
+
+        # Return for compatibility with test harness that checks return value.
+        set_return_value(main());
+    }
+
+    globalSetUp() {
+        m_dir.chdir(Util::tmp_location());
+        m_dir.mkdir(m_subdir);
+        m_dir.chdir(m_subdir);
+    }
+
+    globalTearDown() {
+        m_dir.chdir("..");
+        m_dir.rmdir(m_subdir);
+    }
+
+    # This test is a little bit tricky. We just prepare set of expected
+    # events and these are checked in the time of real event emitation.
+    # These actions are removed then and we can assume that the test
+    # is complete when there are no expected actions for given file name.
+    private testOneFile() {
+        # increase counter for each filename we are expecting
+        m_c.inc();
+        on_exit m_c.dec();
+
+        string f1 = get_tmp_fname();
+        string f2 = f1 + ".new";
+
+        files{f1}."ADD" = True;
+        files{f1}."MODIFIED" = True;
+        files{f2}."MOVED" = True;
+        files{f1}."MOVED" = True;
+        files{f1}."DELETE" = True;
+
+        File f = m_dir.openFile(f1, O_CREAT | O_TRUNC | O_WRONLY, 0644);
+        f.write('lorem ipsum');
+        f.close();
+
+        rename(m_dir.path() + "/" + f1, m_dir.path() + "/" + f2);
+        rename(m_dir.path() + "/" + f2, m_dir.path() + "/" + f1);
+        m_dir.removeFile(f1);
+    }
+
+    singleInstance() {
+        hash opts = DEFAULT_OPTS;
+        TestFilePoller w(self, m_dir.path(), opts);
+
+        testOneFile();
+
+        m_c.waitForZero();
+
+        # lets' wait for pending events
+        sleep(1);
+    }
+
+    private testFilesSet() {
+        for (int i = 0; i < ITERATIONS; i++) {
+            testOneFile();
+        }
+    }
+
+    multiInstance() {
+        hash opts = DEFAULT_OPTS;
+        TestFilePoller w(self, m_dir.path(), opts);
+
+        testFilesSet();
+
+        m_c.waitForZero();
+
+        # lets' wait for pending events
+        sleep(1);
+    }
+
+    multipleThreads() {
+        m_c.inc();
+        hash opts = DEFAULT_OPTS;
+        TestFilePoller w(self, m_dir.path(), opts);
+
+        for (int i = 0; i < THREADS; i++) {
+            background testFilesSet();
+        }
+
+        m_c.dec();
+        m_c.waitForZero();
+
+        # lets' wait for pending events
+        sleep(1);
+    }
+
+    # This test is a little bit tricky. We just prepare set of expected
+    # events and these are checked in the time of real event emitation.
+    # These actions are removed then and we can assume that the test
+    # is complete when there are no expected actions for given file name.
+    private testOneFileDelayed() {
+        # increase counter for each filename we are expecting
+        m_c.inc();
+        on_exit m_c.dec();
+
+        string f1 = get_tmp_fname();
+
+        files{f1}."ADD" = True;
+        files{f1}."MODIFIED" = True;
+        files{f1}."DELETE" = True;
+
+        File f = m_dir.openFile(f1, O_CREAT | O_TRUNC | O_WRONLY, 0644);
+        f.write('lorem ipsum\n');
+        f.close();
+        # wait for events promotion
+        sleep(2);
+
+        f = m_dir.openFile(f1, O_WRONLY, 0644);
+        f.write('lorem ipsum\n');
+        f.close();
+        files{f1}."MODIFIED" = True;
+        # wait for events promotion
+        sleep(2);
+
+        m_dir.removeFile(f1);
+    }
+
+    singleDelayedInstance() {
+        hash opts = DEFAULT_OPTS + (
+                "minage" : 1,
+                "sleep_time" : 1,
+            );
+        TestDelayedFilePoller w(self, m_dir.path(), opts);
+        w.start();
+
+        testOneFileDelayed();
+
+        # lets' wait for pending events
+        sleep(5);
+
+        m_c.waitForZero();
+        w.stop();
+    }
+
+    customFunctions() {
+        hash opts = DEFAULT_OPTS + (
+                "minage" : 1,
+                "sleep_time" : 1,
+                "start_thread" : \custom_start_thread(),
+                "sleep" : \custom_sleep(),
+            );
+        TestDelayedFilePoller w(self, m_dir.path(), opts);
+        w.start();
+
+        testOneFileDelayed();
+
+        # lets' wait for pending events
+        sleep(5);
+
+        m_c.waitForZero();
+        w.stop();
+    }
+    
+    private testDelayedFilesSet() {
+        for (int i = 0; i < ITERATIONS; i++) {
+            testOneFileDelayed();
+        }
+    }
+
+    multiDelayedInstance() {
+        hash opts = DEFAULT_OPTS + (
+                "minage" : 1,
+                "sleep_time" : 1,
+            );
+        TestDelayedFilePoller w(self, m_dir.path(), opts);
+        w.start();
+
+        testDelayedFilesSet();
+
+        # lets' wait for pending events
+        sleep(5);
+
+        m_c.waitForZero();
+        w.stop();
+    }
+
+    multipleDelayedThreads() {
+        m_c.inc();
+        hash opts = DEFAULT_OPTS;
+        TestDelayedFilePoller w(self, m_dir.path(), opts);
+
+        for (int i = 0; i < THREADS; i++) {
+            background testDelayedFilesSet();
+        }
+
+        # lets' wait for pending events
+        sleep(5);
+
+        m_c.dec();
+        m_c.waitForZero();
+        w.stop();
+    }
+}
