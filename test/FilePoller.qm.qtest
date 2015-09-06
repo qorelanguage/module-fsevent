@@ -25,9 +25,6 @@ const DEFAULT_OPTS = (
 our hash fnames;
 synchronized sub get_tmp_fname() {
     my int tid = gettid();
-    if (!exists fnames{tid})
-        fnames{tid} = 0;
-
     fnames{tid}++;
     return sprintf("tid%d_%d.txt", tid, fnames{tid});
 }
@@ -114,14 +111,14 @@ public class Main inherits QUnit::Test {
     constructor() : Test("FilePoller.qm", "1.0") {
         props = m_options;
 
-#        addTestCase("AbstractFilePoller Single Thread - SingleInstance", \singleInstance(), NOTHING);
-#        addTestCase("AbstractFilePoller Single Thread - MultiInstance", \multiInstance(), NOTHING);
-#        addTestCase("AbstractFilePoller Multi Threads - MultiInstance", \multipleThreads(), NOTHING);
+        addTestCase("AbstractFilePoller Single Thread - SingleInstance", \singleInstance());
+        addTestCase("AbstractFilePoller Single Thread - MultiInstance", \multiInstance());
+        addTestCase("AbstractFilePoller Multi Threads - MultiInstance", \multipleThreads());
 
-#        addTestCase("AbstractDelayedFilePoller Single Thread - SingleInstance", \singleDelayedInstance(), NOTHING);
-        addTestCase("AbstractDelayedFilePoller Custom functions", \customFunctions(), NOTHING);
-#        addTestCase("AbstractDelayedFilePoller Single Thread - MultiInstance", \multiDelayedInstance(), NOTHING);
-#        addTestCase("AbstractDelayedFilePoller Multi Threads - MultiInstance", \multipleDelayedThreads(), NOTHING);
+        addTestCase("AbstractDelayedFilePoller Single Thread - SingleInstance", \singleDelayedInstance());
+        addTestCase("AbstractDelayedFilePoller Custom functions", \customFunctions());
+        addTestCase("AbstractDelayedFilePoller Single Thread - MultiInstance", \multiDelayedInstance());
+        addTestCase("AbstractDelayedFilePoller Multi Threads - MultiInstance", \multipleDelayedThreads());
 
         # Return for compatibility with test harness that checks return value.
         set_return_value(main());

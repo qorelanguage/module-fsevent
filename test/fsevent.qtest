@@ -19,9 +19,6 @@ const THREADS = 10;
 our hash fnames;
 synchronized sub get_tmp_fname() {
     my int tid = gettid();
-    if (!exists fnames{tid})
-        fnames{tid} = 0;
-
     fnames{tid}++;
     return sprintf("tid%d_%d.txt", tid, fnames{tid});
 }
@@ -63,9 +60,9 @@ public class Main inherits QUnit::Test {
     }
 
     constructor() : Test("fsevent", "1.0") {
-        addTestCase("Single Thread - SingleInstance", \singleInstance(), NOTHING);
-        addTestCase("Single Thread - MultiInstance", \multiInstance(), NOTHING);
-        addTestCase("Multi Threads - MultiInstance", \multipleThreads(), NOTHING);
+        addTestCase("Single Thread - SingleInstance", \singleInstance());
+        addTestCase("Single Thread - MultiInstance", \multiInstance());
+        addTestCase("Multi Threads - MultiInstance", \multipleThreads());
 
         # Return for compatibility with test harness that checks return value.
         set_return_value(main());
