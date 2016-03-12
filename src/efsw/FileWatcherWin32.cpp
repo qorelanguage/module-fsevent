@@ -61,7 +61,8 @@ WatchID FileWatcherWin32::addWatch(const std::string& directory, FileWatchListen
 	WatcherStructWin32 * watch = CreateWatch( String::fromUtf8( dir ).toWideString().c_str(), recursive,		FILE_NOTIFY_CHANGE_CREATION |
 																			FILE_NOTIFY_CHANGE_LAST_WRITE |
 																			FILE_NOTIFY_CHANGE_FILE_NAME |
-																			FILE_NOTIFY_CHANGE_DIR_NAME
+																			FILE_NOTIFY_CHANGE_DIR_NAME |
+																			FILE_NOTIFY_CHANGE_SIZE
 	);
 
 	if( NULL == watch )
@@ -99,7 +100,7 @@ void FileWatcherWin32::removeWatch(const std::string& directory)
 		if(directory == (*iter)->Watch->DirName)
 		{
 			removeWatch((*iter)->Watch->ID);
-			return;
+			break;
 		}
 	}
 
