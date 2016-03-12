@@ -17,3 +17,4 @@ Use so called "out of source" build
 
 Some tests are located in "test" directory.
 
+** NOTE: based on the "Entropia File System Watcher" (efsw): https://bitbucket.org/SpartanJ/efsw, used under the MIT license
