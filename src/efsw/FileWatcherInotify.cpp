@@ -43,6 +43,10 @@ FileWatcherInotify::FileWatcherInotify( FileWatcher * parent ) :
 
 FileWatcherInotify::~FileWatcherInotify()
 {
+	mInitOK = false;
+
+	efSAFE_DELETE( mThread );
+	
 	WatchMap::iterator iter = mWatches.begin();
 	WatchMap::iterator end = mWatches.end();
 
@@ -58,13 +62,6 @@ FileWatcherInotify::~FileWatcherInotify()
 		close(mFD);
 		mFD = -1;
 	}
-
-	if ( mThread )
-	{
-		mThread->terminate();
-	}
-
-	efSAFE_DELETE( mThread );
 }
 
 WatchID FileWatcherInotify::addWatch( const std::string& directory, FileWatchListener* watcher, bool recursive )
@@ -125,7 +122,7 @@ WatchID FileWatcherInotify::addWatch( const std::string& directory, FileWatchLis
 		}
 	}
 
-	int wd = inotify_add_watch (mFD, dir.c_str(), IN_CLOSE_WRITE | IN_MOVED_TO | IN_CREATE | IN_MOVED_FROM | IN_DELETE);
+	int wd = inotify_add_watch (mFD, dir.c_str(), IN_CLOSE_WRITE | IN_MOVED_TO | IN_CREATE | IN_MOVED_FROM | IN_DELETE | IN_MODIFY);
 
 	if ( wd < 0 )
 	{
@@ -327,55 +324,65 @@ void FileWatcherInotify::run()
 
 	do
 	{
-		ssize_t len, i = 0;
+		fd_set rfds;
+		FD_ZERO (&rfds);
+		FD_SET (mFD, &rfds);
+		timeval timeout;
+		timeout.tv_sec=0;
+		timeout.tv_usec=100000;
 
-		len = read (mFD, buff, BUFF_SIZE);
-
-		if (len != -1)
+		if( select (FD_SETSIZE, &rfds, NULL, NULL, &timeout) > 0 )
 		{
-			while (i < len)
+			ssize_t len, i = 0;
+
+			len = read (mFD, buff, BUFF_SIZE);
+
+			if (len != -1)
 			{
-				struct inotify_event *pevent = (struct inotify_event *)&buff[i];
-
-				mWatchesLock.lock();
-
-				wit = mWatches.find( pevent->wd );
-
-				if ( wit != mWatches.end() )
+				while (i < len)
 				{
-					handleAction(wit->second, pevent->name, pevent->mask);
+					struct inotify_event *pevent = (struct inotify_event *)&buff[i];
 
-					/// Keep track of the IN_MOVED_FROM events to known if the IN_MOVED_TO event is also fired
-					if ( !wit->second->OldFileName.empty() )
+					mWatchesLock.lock();
+
+					wit = mWatches.find( pevent->wd );
+
+					if ( wit != mWatches.end() )
 					{
-						movedOutsideWatches.push_back( wit->second );
+						handleAction(wit->second, pevent->name, pevent->mask);
+
+						/// Keep track of the IN_MOVED_FROM events to known if the IN_MOVED_TO event is also fired
+						if ( !wit->second->OldFileName.empty() )
+						{
+							movedOutsideWatches.push_back( wit->second );
+						}
 					}
+
+					mWatchesLock.unlock();
+
+					i += sizeof(struct inotify_event) + pevent->len;
 				}
 
-				mWatchesLock.unlock();
-
-				i += sizeof(struct inotify_event) + pevent->len;
-			}
-
-			if ( !movedOutsideWatches.empty() )
-			{
-				/// In case that the IN_MOVED_TO is never fired means that the file was moved to other folder
-				for ( std::list<WatcherInotify*>::iterator it = movedOutsideWatches.begin(); it != movedOutsideWatches.end(); it++ )
+				if ( !movedOutsideWatches.empty() )
 				{
-					if ( !(*it)->OldFileName.empty() )
+					/// In case that the IN_MOVED_TO is never fired means that the file was moved to other folder
+					for ( std::list<WatcherInotify*>::iterator it = movedOutsideWatches.begin(); it != movedOutsideWatches.end(); it++ )
 					{
-						/// So we send a IN_DELETE event for files that where moved outside of our scope
-						handleAction( *it, (*it)->OldFileName, IN_DELETE );
+						if ( !(*it)->OldFileName.empty() )
+						{
+							/// So we send a IN_DELETE event for files that where moved outside of our scope
+							handleAction( *it, (*it)->OldFileName, IN_DELETE );
 
-						/// Remove the OldFileName
-						(*it)->OldFileName = "";
+							/// Remove the OldFileName
+							(*it)->OldFileName = "";
+						}
 					}
-				}
 
-				movedOutsideWatches.clear();
+					movedOutsideWatches.clear();
+				}
 			}
 		}
-	} while( mFD > 0 );
+	} while( mInitOK );
 }
 
 void FileWatcherInotify::checkForNewWatcher( Watcher* watch, std::string fpath )
@@ -413,7 +420,7 @@ void FileWatcherInotify::handleAction( Watcher* watch, const std::string& filena
 
 	std::string fpath( watch->Directory + filename );
 
-	if( IN_CLOSE_WRITE & action )
+	if ( ( IN_CLOSE_WRITE & action ) || ( IN_MODIFY & action ) )
 	{
 		watch->Listener->handleFileAction( watch->ID, watch->Directory, filename, Actions::Modified );
 	}

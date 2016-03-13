@@ -41,7 +41,7 @@ void CALLBACK WatchCallback(DWORD dwErrorCode, DWORD dwNumberOfBytesTransfered, 
 			{
 				FileInfo fifile( std::string( pWatch->DirName ) + nfile );
 
-				if ( pWatch->LastModifiedEvent.file.ModificationTime == fifile.ModificationTime && pWatch->LastModifiedEvent.fileName == nfile )
+				if ( pWatch->LastModifiedEvent.file.ModificationTime == fifile.ModificationTime && pWatch->LastModifiedEvent.file.Size == fifile.Size && pWatch->LastModifiedEvent.fileName == nfile )
 				{
 					skip = true;
 				}
@@ -87,15 +87,9 @@ void DestroyWatch(WatcherStructWin32* pWatch)
 
 		tWatch->StopNow = true;
 
-		CancelIo(tWatch->DirHandle);
+		CancelIoEx(tWatch->DirHandle, &pWatch->Overlapped);
 
 		RefreshWatch(pWatch);
-
-		if (!HasOverlappedIoCompleted(&pWatch->Overlapped))
-		{
-			SleepEx(5, TRUE);
-		}
-
 		CloseHandle(pWatch->Overlapped.hEvent);
 		CloseHandle(pWatch->Watch->DirHandle);
 		efSAFE_DELETE_ARRAY( pWatch->Watch->DirName );
