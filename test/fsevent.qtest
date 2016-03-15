@@ -37,9 +37,14 @@ class Watcher inherits public FSWatcher
     nothing event(int id, string dir, string fname, int action, string oldFname) {
         string am = ACTION_MAP{action};
         string testname = fname + ": " + am;
-        code c = sub() {return exists m_ut.files{fname}{am}; };
+
+        code c = bool sub() {return m_ut.files{fname}{am} > 0; };
         m_ut.testAssertion(testname, c);
-        delete m_ut.files{fname}{am};
+
+        m_ut.files{fname}{am}--;
+        if (m_ut.files{fname}{am} == 0) {
+            delete m_ut.files{fname}{am};
+        }
 
         if (!m_ut.files{fname}.size()) {
             delete m_ut.files{fname};
@@ -91,11 +96,11 @@ public class Main inherits QUnit::Test {
         string f1 = get_tmp_fname();
         string f2 = f1 + ".new";
 
-        files{f1}."ADD" = True;
-        files{f1}."MODIFIED" = True;
-        files{f2}."MOVED" = True;
-        files{f1}."MOVED" = True;
-        files{f1}."DELETE" = True;
+        files{f1}."ADD" = 1;
+        files{f1}."MODIFIED" = 2;
+        files{f2}."MOVED" = 1;
+        files{f1}."MOVED" = 1;
+        files{f1}."DELETE" = 1;
 
         File f = m_dir.openFile(f1, O_CREAT | O_TRUNC | O_WRONLY, 0644);
         f.write('lorem ipsum');
