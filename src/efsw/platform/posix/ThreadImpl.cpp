@@ -7,10 +7,6 @@
 #include <iostream>
 #include <efsw/Debug.hpp>
 
-#include <errno.h>
-#include <string.h>
-#include <stdio.h>
-
 namespace efsw { namespace Platform {
 
 ThreadImpl::ThreadImpl( Thread * owner ) :
