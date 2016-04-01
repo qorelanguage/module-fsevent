@@ -15,7 +15,7 @@ DLLLOCAL extern QoreClass* QC_FSWATCHER;
 
 
 // handle external (oracle) threads for qore/aq
-class AQCallbackThreadManager {
+class CallbackThreadManager {
 protected:
    pthread_t ora_thread;
    QoreThreadLock l;
@@ -23,10 +23,10 @@ protected:
    int tid;
 
 public:
-   DLLLOCAL AQCallbackThreadManager() : count(0), tid(0) {
+   DLLLOCAL CallbackThreadManager() : count(0), tid(0) {
    }
 
-   DLLLOCAL ~AQCallbackThreadManager() {
+   DLLLOCAL ~CallbackThreadManager() {
       assert(!tid);
       assert(!count);
    }
@@ -38,13 +38,13 @@ public:
          tid = q_reserve_foreign_thread_id();
          assert(tid > 0);
       }
-      printd(0, "CTM::inc() %d -> %d\n", count, count + 1);
+      //printd(5, "CTM::inc() %d -> %d\n", count, count + 1);
       ++count;
    }
 
    DLLLOCAL void dec() {
       AutoLocker al(l);
-      printd(0, "CTM::dec() %d -> %d\n", count, count - 1);
+      //printd(5, "CTM::dec() %d -> %d\n", count, count - 1);
       if (!--count) {
          q_release_reserved_foreign_thread_id(tid);
          tid = 0;
@@ -61,7 +61,7 @@ public:
    }
 };
 
-AQCallbackThreadManager aqCallbackThreadManager;
+CallbackThreadManager callbackThreadManager;
 
 
 
@@ -80,6 +80,12 @@ public:
 
     DLLLOCAL void handleFileAction(WatchID watchid, const std::string& dir, const std::string& filename, Action action, std::string oldFilename = "");
 
+    DLLLOCAL void stop() {
+       //printd(5, "FSWatcherPriv::~FSWatcherPriv() this: %p\n", this);
+       delete m_fw;
+       m_fw = 0;
+       callbackThreadManager.dec();
+    }
 
 private:
     FileWatcher *m_fw;
@@ -89,17 +95,15 @@ private:
 
 
 FSWatcherPriv::FSWatcherPriv(QoreObject *obj) {
-    printd(0, "FSWatcherPriv::FSWatcherPriv() this: %p\n", this);
-    aqCallbackThreadManager.inc();
+    //printd(5, "FSWatcherPriv::FSWatcherPriv() this: %p\n", this);
+    callbackThreadManager.inc();
     m_obj = obj;
     m_fw = new FileWatcher();
     m_fw->watch();
 }
 
 FSWatcherPriv::~FSWatcherPriv() {
-    printd(0, "FSWatcherPriv::~FSWatcherPriv() this: %p\n", this);
-    delete m_fw;
-    aqCallbackThreadManager.dec();
+   assert(!m_fw);
 }
 
 int FSWatcherPriv::addWatch(const char * path, bool recursive, ExceptionSink *xsink) {
@@ -146,23 +150,20 @@ AbstractQoreNode* FSWatcherPriv::directories() {
 /// @param oldFilename The name of the file or directory moved
 void FSWatcherPriv::handleFileAction(WatchID watchid, const std::string& dir, const std::string& filename, Action action, std::string oldFilename) {
 
-    QoreForeignThreadHelper qfth(aqCallbackThreadManager.getTid());
+    QoreForeignThreadHelper qfth(callbackThreadManager.getTid());
 
     ExceptionSink xsink;
 
-    QoreListNode *args = new QoreListNode();
+    ReferenceHolder<QoreListNode> args(new QoreListNode(), &xsink);
     args->push(new QoreBigIntNode(watchid));
     args->push(new QoreStringNode(dir));
     args->push(new QoreStringNode(filename));
     args->push(new QoreBigIntNode(action));
     args->push(new QoreStringNode(oldFilename));
 
-    m_obj->evalMethod("event", args, &xsink);
-
-    args->deref(&xsink);
+    //printd(5, "FSWatcherPriv::handleFileAction this: %p m_obj: %p refs: %d\n", this, m_obj, m_obj->reference_count());
+    m_obj->evalMethodValue("event", *args, &xsink).discard(&xsink);
 }
-
-
 
 
 //! Implementation of filesystem event watcher.
@@ -204,6 +205,15 @@ FSWatcher::constructor() {
  */
 FSWatcher::copy() {
    xsink->raiseException("FSWATCHER-COPY-ERROR", "copying FSWatcher objects is currently not supported");
+}
+
+//! stops the watcher thread and destroyes the object
+/**
+ */
+FSWatcher::destructor() {
+   printd(0, "FSWatcher::destructor() priv: %p\n", priv);
+   priv->stop();
+   priv->deref(xsink);
 }
 
 //! Add new path for monitoring.

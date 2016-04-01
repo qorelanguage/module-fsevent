@@ -45,7 +45,15 @@ FileWatcherInotify::~FileWatcherInotify()
 {
 	mInitOK = false;
 
-	efSAFE_DELETE( mThread );
+        printf("FileWatcherInotify::~FileWatcherInotify() this: %p mThread: %p\n", this, mThread);
+
+        // wait for watcher thread to stop if running
+        if (mThread) {
+           mThread->wait();
+           efSAFE_DELETE( mThread );
+        }
+
+        printf("FileWatcherInotify::~FileWatcherInotify() this: %p run thread stopped, purging data\n", this);
 
 	WatchMap::iterator iter = mWatches.begin();
 	WatchMap::iterator end = mWatches.end();
@@ -352,7 +360,7 @@ void FileWatcherInotify::run()
 						handleAction(wit->second, pevent->name, pevent->mask);
 
 						/// Keep track of the IN_MOVED_FROM events to known if the IN_MOVED_TO event is also fired
-						if ( !wit->second->OldFileName.empty() )
+						if ( wit->second && !wit->second->OldFileName.empty() )
 						{
 							movedOutsideWatches.push_back( wit->second );
 						}
