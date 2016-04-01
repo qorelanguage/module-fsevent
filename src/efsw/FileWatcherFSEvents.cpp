@@ -83,6 +83,18 @@ FileWatcherFSEvents::FileWatcherFSEvents( FileWatcher * parent ) :
 
 FileWatcherFSEvents::~FileWatcherFSEvents()
 {
+	mInitOK = false;
+	
+	if ( NULL != mRunLoopRef )
+	{
+		CFRunLoopStop( mRunLoopRef );
+	}
+
+	if (mThread) {
+	   mThread->wait();
+	   efSAFE_DELETE( mThread );
+	}
+
 	WatchMap::iterator iter = mWatches.begin();
 
 	for( ; iter != mWatches.end(); ++iter )
@@ -94,14 +106,6 @@ FileWatcherFSEvents::~FileWatcherFSEvents()
 
 	mWatches.clear();
 
-	mInitOK = false;
-	
-	if ( NULL != mRunLoopRef )
-	{
-		CFRunLoopStop( mRunLoopRef );
-	}
-
-	efSAFE_DELETE( mThread );
 }
 
 WatchID FileWatcherFSEvents::addWatch( const std::string& directory, FileWatchListener* watcher, bool recursive )

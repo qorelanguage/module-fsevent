@@ -45,15 +45,11 @@ FileWatcherInotify::~FileWatcherInotify()
 {
 	mInitOK = false;
 
-        printf("FileWatcherInotify::~FileWatcherInotify() this: %p mThread: %p\n", this, mThread);
-
         // wait for watcher thread to stop if running
         if (mThread) {
            mThread->wait();
            efSAFE_DELETE( mThread );
         }
-
-        printf("FileWatcherInotify::~FileWatcherInotify() this: %p run thread stopped, purging data\n", this);
 
 	WatchMap::iterator iter = mWatches.begin();
 	WatchMap::iterator end = mWatches.end();

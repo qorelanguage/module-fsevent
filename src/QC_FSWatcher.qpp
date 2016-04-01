@@ -89,6 +89,7 @@ public:
 
 private:
     FileWatcher *m_fw;
+    const QoreMethod *event;
     QoreObject *m_obj;
 };
 
@@ -96,6 +97,8 @@ private:
 
 FSWatcherPriv::FSWatcherPriv(QoreObject *obj) {
     //printd(5, "FSWatcherPriv::FSWatcherPriv() this: %p\n", this);
+    event = obj->getClass()->findMethod("event");
+    assert(event);
     callbackThreadManager.inc();
     m_obj = obj;
     m_fw = new FileWatcher();
@@ -162,7 +165,8 @@ void FSWatcherPriv::handleFileAction(WatchID watchid, const std::string& dir, co
     args->push(new QoreStringNode(oldFilename));
 
     //printd(5, "FSWatcherPriv::handleFileAction this: %p m_obj: %p refs: %d\n", this, m_obj, m_obj->reference_count());
-    m_obj->evalMethodValue("event", *args, &xsink).discard(&xsink);
+    event->execManaged(m_obj, *args, &xsink).discard(&xsink);
+    //m_obj->evalMethodValue("event", *args, &xsink).discard(&xsink);
 }
 
 
@@ -211,7 +215,7 @@ FSWatcher::copy() {
 /**
  */
 FSWatcher::destructor() {
-   printd(0, "FSWatcher::destructor() priv: %p\n", priv);
+   //printd(5, "FSWatcher::destructor() priv: %p\n", priv);
    priv->stop();
    priv->deref(xsink);
 }
