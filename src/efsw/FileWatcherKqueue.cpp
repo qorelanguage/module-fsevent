@@ -33,6 +33,12 @@ FileWatcherKqueue::FileWatcherKqueue( FileWatcher * parent ) :
 
 FileWatcherKqueue::~FileWatcherKqueue()
 {
+	mInitOK = false;
+
+	mThread->wait();
+
+	efSAFE_DELETE( mThread );
+
 	WatchMap::iterator iter = mWatches.begin();
 
 	for(; iter != mWatches.end(); ++iter)
@@ -41,12 +47,6 @@ FileWatcherKqueue::~FileWatcherKqueue()
 	}
 
 	mWatches.clear();
-
-	mInitOK = false;
-
-	mThread->wait();
-
-	efSAFE_DELETE( mThread );
 }
 
 WatchID FileWatcherKqueue::addWatch(const std::string& directory, FileWatchListener* watcher, bool recursive)

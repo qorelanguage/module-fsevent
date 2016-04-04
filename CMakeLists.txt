@@ -13,7 +13,7 @@ set(CMAKE_MODULE_PATH ${CMAKE_SOURCE_DIR}/cmake )
 FIND_PACKAGE (Qore REQUIRED)
 
 if (APPLE)
-    set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -framework CoreFoundation -framework CoreServices") 
+    set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -framework CoreFoundation -framework CoreServices")
 endif (APPLE)
 
 
@@ -53,7 +53,7 @@ set(EFSW_SRC
 )
 
 if (${CMAKE_SYSTEM_NAME} MATCHES "Darwin")
-    set(EFSW_SRC ${EFSW_SRC} src/efsw/FileWatcherFSEvents.cpp src/efsw/WatcherFSEvents.cpp)
+    set(EFSW_SRC ${EFSW_SRC} src/efsw/FileWatcherKqueue.cpp src/efsw/WatcherKqueue.cpp)
 endif ()
 
 if (${CMAKE_SYSTEM_NAME} MATCHES "Linux")
@@ -63,7 +63,7 @@ endif ()
 if (${CMAKE_SYSTEM_NAME} MATCHES "^.*BSD$")
     set(EFSW_SRC ${EFSW_SRC} src/efsw/FileWatcherKqueue.cpp src/efsw/WatcherKqueue.cpp)
 endif ()
-    
+
 if (${CMAKE_SYSTEM_NAME} MATCHES "Windows")
     set(EFSW_SRC ${EFSW_SRC} src/efsw/FileWatcherWin32.cpp src/efsw/WatcherWin32.cpp)
 endif()
@@ -88,9 +88,9 @@ endif ()
 set(EFSW_QMOD qlib/FilePoller.qm)
 
 
-add_definitions(-DUSE_UTF8)
+add_definitions(-DUSE_UTF8 -DEFSW_FSEVENTS_NOT_SUPPORTED=1)
 
-qore_wrap_qpp(QPP_SOURCES ${QPP_SRC})
+qore_wrap_qpp_value(QPP_SOURCES ${QPP_SRC})
 
 SET (module_name "fsevent")
 
@@ -106,5 +106,3 @@ qore_user_modules(${EFSW_QMOD})
 qore_dist("${VERSION_MAJOR}.${VERSION_MINOR}.${VERSION_PATCH}")
 
 qore_config_info()
-
-

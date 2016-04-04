@@ -18,9 +18,11 @@ FileWatcherWin32::FileWatcherWin32( FileWatcher * parent ) :
 
 FileWatcherWin32::~FileWatcherWin32()
 {
-	WatchVector::iterator iter = mWatches.begin();
+	mInitOK = false;
+	mThread->wait();
+	efSAFE_DELETE( mThread );
 
-	mWatchesLock.lock();
+	WatchVector::iterator iter = mWatches.begin();
 
 	for(; iter != mWatches.end(); ++iter)
 	{
@@ -30,11 +32,7 @@ FileWatcherWin32::~FileWatcherWin32()
 	mHandles.clear();
 	mWatches.clear();
 
-	mInitOK = false;
 
-	mWatchesLock.unlock();
-
-	efSAFE_DELETE( mThread );
 }
 
 WatchID FileWatcherWin32::addWatch(const std::string& directory, FileWatchListener* watcher, bool recursive)

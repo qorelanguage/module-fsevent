@@ -45,8 +45,12 @@ FileWatcherInotify::~FileWatcherInotify()
 {
 	mInitOK = false;
 
-	efSAFE_DELETE( mThread );
-	
+        // wait for watcher thread to stop if running
+        if (mThread) {
+           mThread->wait();
+           efSAFE_DELETE( mThread );
+        }
+
 	WatchMap::iterator iter = mWatches.begin();
 	WatchMap::iterator end = mWatches.end();
 
@@ -352,7 +356,7 @@ void FileWatcherInotify::run()
 						handleAction(wit->second, pevent->name, pevent->mask);
 
 						/// Keep track of the IN_MOVED_FROM events to known if the IN_MOVED_TO event is also fired
-						if ( !wit->second->OldFileName.empty() )
+						if ( wit->second && !wit->second->OldFileName.empty() )
 						{
 							movedOutsideWatches.push_back( wit->second );
 						}
@@ -394,6 +398,9 @@ void FileWatcherInotify::checkForNewWatcher( Watcher* watch, std::string fpath )
 	{
 		bool found = false;
 
+                // FIXME: this is not atomic - the search is done in the lock an then the add is done outside the lock
+                mWatchesLock.lock();
+
 		/// First check if exists
 		for ( WatchMap::iterator it = mWatches.begin(); it != mWatches.end(); it++ )
 		{
@@ -403,6 +410,8 @@ void FileWatcherInotify::checkForNewWatcher( Watcher* watch, std::string fpath )
 				break;
 			}
 		}
+
+                mWatchesLock.unlock();
 
 		if ( !found )
 		{
@@ -447,6 +456,8 @@ void FileWatcherInotify::handleAction( Watcher* watch, const std::string& filena
 			FileSystem::dirAddSlashAtEnd( opath );
 			FileSystem::dirAddSlashAtEnd( fpath );
 
+                        mWatchesLock.lock();
+
 			for ( WatchMap::iterator it = mWatches.begin(); it != mWatches.end(); it++ )
 			{
 				if ( it->second->Directory == opath && it->second->DirInfo.Inode == FileInfo( opath ).Inode )
@@ -457,6 +468,8 @@ void FileWatcherInotify::handleAction( Watcher* watch, const std::string& filena
 					break;
 				}
 			}
+
+                        mWatchesLock.unlock();
 		}
 
 		watch->OldFileName = "";
@@ -480,7 +493,8 @@ void FileWatcherInotify::handleAction( Watcher* watch, const std::string& filena
 		/// If the file erased is a directory and recursive is enabled, removes the directory erased
 		if ( watch->Recursive )
 		{
-			for ( WatchMap::iterator it = mWatches.begin(); it != mWatches.end(); it++ )
+                        mWatchesLock.lock();
+                        for ( WatchMap::iterator it = mWatches.begin(); it != mWatches.end(); it++ )
 			{
 				if ( it->second->Directory == fpath )
 				{
@@ -488,6 +502,7 @@ void FileWatcherInotify::handleAction( Watcher* watch, const std::string& filena
 					break;
 				}
 			}
+                        mWatchesLock.unlock();
 		}
 	}
 }
