@@ -85,7 +85,7 @@ else ()
     )
 endif ()
 
-set(EFSW_QMOD qlib/FilePoller.qm)
+set(EFSW_QMOD qlib/FsEventPoller.qm)
 
 
 add_definitions(-DUSE_UTF8 -DEFSW_FSEVENTS_NOT_SUPPORTED=1)
