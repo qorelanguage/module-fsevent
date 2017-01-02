@@ -8,8 +8,6 @@
 #include <efsw/WatcherInotify.hpp>
 #include <map>
 
-#include <qore/Qore.h>
-
 namespace efsw
 {
 
