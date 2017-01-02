@@ -4,7 +4,7 @@
 
 %requires Util
 %requires QUnit
-%requires ../qlib/FilePoller.qm
+%requires ../qlib/FsEventPoller.qm
 
 %exec-class Main
 
@@ -48,13 +48,13 @@ sub custom_sleep(int s) {
 }
 
 
-class TestFilePoller inherits public FilePoller::AbstractFilePoller
+class TestFsEventPoller inherits public FsEventPoller::AbstractFsEventPoller
 {
     private {
         Main m_ut;
     }
 
-    constructor(Main ut, string path, *hash opts) : FilePoller::AbstractFilePoller(path, opts) {
+    constructor(Main ut, string path, *hash opts) : FsEventPoller::AbstractFsEventPoller(path, opts) {
         m_ut = ut;
     }
 
@@ -77,13 +77,13 @@ class TestFilePoller inherits public FilePoller::AbstractFilePoller
 
 }
 
-class TestDelayedFilePoller inherits public FilePoller::AbstractDelayedFilePoller
+class TestDelayedFsEventPoller inherits public FsEventPoller::AbstractDelayedFsEventPoller
 {
     private {
         Main m_ut;
     }
 
-    constructor(Main ut, string path, *hash opts) : FilePoller::AbstractDelayedFilePoller(path, opts) {
+    constructor(Main ut, string path, *hash opts) : FsEventPoller::AbstractDelayedFsEventPoller(path, opts) {
         m_ut = ut;
     }
 
@@ -117,17 +117,17 @@ public class Main inherits QUnit::Test {
         hash files;
     }
 
-    constructor() : Test("FilePoller.qm", "1.0") {
+    constructor() : Test("FsEventPoller.qm", "1.0") {
         props = m_options;
 
-        addTestCase("AbstractFilePoller Single Thread - SingleInstance", \singleInstance());
-        addTestCase("AbstractFilePoller Single Thread - MultiInstance", \multiInstance());
-        addTestCase("AbstractFilePoller Multi Threads - MultiInstance", \multipleThreads());
+        addTestCase("AbstractFsEventPoller Single Thread - SingleInstance", \singleInstance());
+        addTestCase("AbstractFsEventPoller Single Thread - MultiInstance", \multiInstance());
+        addTestCase("AbstractFsEventPoller Multi Threads - MultiInstance", \multipleThreads());
 
-        addTestCase("AbstractDelayedFilePoller Single Thread - SingleInstance", \singleDelayedInstance());
-        addTestCase("AbstractDelayedFilePoller Custom functions", \customFunctions());
-        addTestCase("AbstractDelayedFilePoller Single Thread - MultiInstance", \multiDelayedInstance());
-        addTestCase("AbstractDelayedFilePoller Multi Threads - MultiInstance", \multipleDelayedThreads());
+        addTestCase("AbstractDelayedFsEventPoller Single Thread - SingleInstance", \singleDelayedInstance());
+        addTestCase("AbstractDelayedFsEventPoller Custom functions", \customFunctions());
+        addTestCase("AbstractDelayedFsEventPoller Single Thread - MultiInstance", \multiDelayedInstance());
+        addTestCase("AbstractDelayedFsEventPoller Multi Threads - MultiInstance", \multipleDelayedThreads());
 
         # Return for compatibility with test harness that checks return value.
         set_return_value(main());
@@ -173,7 +173,7 @@ public class Main inherits QUnit::Test {
 
     singleInstance() {
         hash opts = DEFAULT_OPTS;
-        TestFilePoller w(self, m_dir.path(), opts);
+        TestFsEventPoller w(self, m_dir.path(), opts);
 
         testOneFile();
 
@@ -191,7 +191,7 @@ public class Main inherits QUnit::Test {
 
     multiInstance() {
         hash opts = DEFAULT_OPTS;
-        TestFilePoller w(self, m_dir.path(), opts);
+        TestFsEventPoller w(self, m_dir.path(), opts);
 
         testFilesSet();
 
@@ -204,7 +204,7 @@ public class Main inherits QUnit::Test {
     multipleThreads() {
         m_c.inc();
         hash opts = DEFAULT_OPTS;
-        TestFilePoller w(self, m_dir.path(), opts);
+        TestFsEventPoller w(self, m_dir.path(), opts);
 
         for (int i = 0; i < THREADS; i++) {
             background testFilesSet();
@@ -253,7 +253,7 @@ public class Main inherits QUnit::Test {
                 "minage" : 1,
                 "sleep_time" : 1,
             );
-        TestDelayedFilePoller w(self, m_dir.path(), opts);
+        TestDelayedFsEventPoller w(self, m_dir.path(), opts);
         w.start();
 
         testOneFileDelayed();
@@ -272,7 +272,7 @@ public class Main inherits QUnit::Test {
                 "start_thread" : \custom_start_thread(),
                 "sleep" : \custom_sleep(),
             );
-        TestDelayedFilePoller w(self, m_dir.path(), opts);
+        TestDelayedFsEventPoller w(self, m_dir.path(), opts);
         w.start();
 
         testOneFileDelayed();
@@ -283,7 +283,7 @@ public class Main inherits QUnit::Test {
         m_c.waitForZero();
         w.stop();
     }
-    
+
     private testDelayedFilesSet() {
         for (int i = 0; i < ITERATIONS; i++) {
             testOneFileDelayed();
@@ -295,7 +295,7 @@ public class Main inherits QUnit::Test {
                 "minage" : 1,
                 "sleep_time" : 1,
             );
-        TestDelayedFilePoller w(self, m_dir.path(), opts);
+        TestDelayedFsEventPoller w(self, m_dir.path(), opts);
         w.start();
 
         testDelayedFilesSet();
@@ -310,7 +310,7 @@ public class Main inherits QUnit::Test {
     multipleDelayedThreads() {
         m_c.inc();
         hash opts = DEFAULT_OPTS;
-        TestDelayedFilePoller w(self, m_dir.path(), opts);
+        TestDelayedFsEventPoller w(self, m_dir.path(), opts);
 
         for (int i = 0; i < THREADS; i++) {
             background testDelayedFilesSet();
