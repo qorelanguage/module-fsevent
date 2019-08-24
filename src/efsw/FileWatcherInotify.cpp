@@ -369,11 +369,7 @@ void FileWatcherInotify::run()
 						{
 							handleAction(wit->second, pevent->name, pevent->mask);
 
-<<<<<<< HEAD
 							/// Keep track of the IN_MOVED_FROM events to know if the IN_MOVED_TO event is also fired
-=======
-							/// Keep track of the IN_MOVED_FROM events to known if the IN_MOVED_TO event is also fired
->>>>>>> develop
 							if ( !wit->second->OldFileName.empty() )
 							{
 								movedOutsideWatches.push_back( wit->second );
@@ -497,11 +493,7 @@ void FileWatcherInotify::handleAction( Watcher* watch, const std::string& filena
 			FileSystem::dirAddSlashAtEnd( opath );
 			FileSystem::dirAddSlashAtEnd( fpath );
 
-<<<<<<< HEAD
 			for ( WatchMap::iterator it = mWatches.begin(); it != mWatches.end(); ++it )
-=======
-			for ( WatchMap::iterator it = mWatches.begin(); it != mWatches.end(); it++ )
->>>>>>> develop
 			{
 				if ( it->second->Directory == opath && it->second->DirInfo.Inode == FileInfo( opath ).Inode )
 				{
@@ -534,11 +526,7 @@ void FileWatcherInotify::handleAction( Watcher* watch, const std::string& filena
 		/// If the file erased is a directory and recursive is enabled, removes the directory erased
 		if ( watch->Recursive )
 		{
-<<<<<<< HEAD
 			for ( WatchMap::iterator it = mWatches.begin(); it != mWatches.end(); ++it )
-=======
-			for ( WatchMap::iterator it = mWatches.begin(); it != mWatches.end(); it++ )
->>>>>>> develop
 			{
 				if ( it->second->Directory == fpath )
 				{
