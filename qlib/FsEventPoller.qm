@@ -1,7 +1,7 @@
 # -*- mode: qore; indent-tabs-mode: nil -*-
 #! @file FsEventPoller.qm filePoller: Filesystem based polling solution
 
-/*  FsEventPoller.qm Copyright (C) 2014 - 2016 Qore Technologies sro.
+/*  FsEventPoller.qm Copyright (C) 2014 - 2019 Qore Technologies s.r.o.
 
     Permission is hereby granted, free of charge, to any person obtaining a
     copy of this software and associated documentation files (the "Software"),
@@ -38,16 +38,11 @@ module FsEventPoller {
 %new-style
 %require-types
 
-/*  Version History
-    *            v0.1.0: initial implementation
-
-
-*/
-
 /** @mainpage FsEventPoller Module
 
-    Module \c FsEventPoller provides high level API to construct files/directories
-    monitors.
+    @section fseventpollerintro FsEventPoller Module Introduction
+
+    Module \c FsEventPoller provides a high level API for event-driven file and directory monitors.
 
     Available classes:
      - FsEventPoller::AbstractFsEventPoller providing ad-hoc events whenever file is changed
@@ -55,8 +50,7 @@ module FsEventPoller {
 
     @section file_poller_constructor_hash Constructor Option Hash
 
-    This is a list with optional settings for all AbstractFsEventPoller based
-    classes
+    This is a list with optional settings for all AbstractFsEventPoller based classes
 
     |!Option|!Type|!Mandatory|!Description
     |\c mask|\c string|N|A file name glob/shell mask @ref file_poller_masks
@@ -72,32 +66,48 @@ module FsEventPoller {
     @section file_poller_masks File Name Masks and Matching
 
     Any AbstractFsEventPoller can be configured to match file names by:
-     - Qore regex based mask. RQore regex options can be provided in \c reopts option hash key.
+     - Qore regex based mask. Qore regex options can be provided in \c reopts option hash key.
      - file system standard mask (glob, shell, MS Windows cmd.exe)
 
     User can specify one style of mask in the constructor. An exception "\c FILEPOLLER-ERROR - regex_mask and mask options cannot be used together" is raised whenewer both masks are defined.
 
     Default value for matching is to take all file names.
+
+    @section fseventpoller_relnotes FsEventPoller Module Release Notes
+
+    @subsection fseventpoller_v010: FsEventPoller v0.1.0
+    Initial release
 */
 
 #! main module namespace
 public namespace FsEventPoller {
-    #! this implementation version
-    public const version     = "0.1.0";
+#! this implementation version
+public const version     = "0.1.0";
 
+#! file event info hash
+hashdecl FsEventInfo {
+    #! directory path
+    string dir;
+
+    #! filename
+    string fname;
+
+    #! event action type
+    int action;
+
+    #! oldfilename
+    string oldfilename;
 }
 
-
 #! Ad-hoc file notification handler
-public class FsEventPoller::AbstractFsEventPoller inherits FSEvents::FSWatcher {
-
+public class AbstractFsEventPoller inherits FsEvents::AbstractFsWatcher {
     private {
         # defauilt regexp mask
         string m_regexMask = ".*";
         int m_reopts = 0;
 
         # default list of used FS actions
-        list m_actions = (FSEvents::ADD, FSEvents::MODIFIED, );
+        list<int> m_actions = (FsEvents::ADD, FsEvents::MODIFIED, );
 
         # optional info log closure
         *code m_logInfo;
@@ -113,8 +123,7 @@ public class FsEventPoller::AbstractFsEventPoller inherits FSEvents::FSWatcher {
     /** @param path a string with full path to the directory to be monitored
         @param options a hash with features settings @ref file_poller_constructor_hash
      */
-    constructor(string path, *hash options) {
-
+    constructor(string path, *hash<auto> options) {
         if (exists options.log_info)
             m_logInfo = options.log_info;
         if (exists options.log_detail)
@@ -129,8 +138,7 @@ public class FsEventPoller::AbstractFsEventPoller inherits FSEvents::FSWatcher {
             if (exists options.reopts) {
                 m_reopts = options.reopts;
             }
-        }
-        else if (exists options.mask)
+        } else if (exists options.mask)
             setMask(options.mask);
 
         if (exists options.actions)
@@ -207,7 +215,7 @@ public class FsEventPoller::AbstractFsEventPoller inherits FSEvents::FSWatcher {
         logDebug("initialRun() called for path: %s", path);
         ListIterator it(d.list(m_regexMask));
         while (it.next()) {
-            event(0, path, it.getValue(), FSEvents::MODIFIED, "");
+            event(0, path, it.getValue(), FsEvents::MODIFIED, "");
         }
         logDebug("initialRun() finished for path: %s", path);
     }
@@ -222,7 +230,6 @@ public class FsEventPoller::AbstractFsEventPoller inherits FSEvents::FSWatcher {
     abstract fileEvent(string dirname, string filename, int action, string oldfilename);
 
 } # class AbstractFsEventPoller
-
 
 #! Delayed file notification handler
 /** The additional functionality of this class is to provide last modification timestamp
@@ -244,10 +251,9 @@ public class FsEventPoller::AbstractFsEventPoller inherits FSEvents::FSWatcher {
         - the fileEvent() is invoked only when relative modification timestamp is
           lesser then "minage" value
      */
-public class FsEventPoller::AbstractDelayedFsEventPoller inherits FsEventPoller::AbstractFsEventPoller {
-
+public class AbstractDelayedFsEventPoller inherits AbstractFsEventPoller {
     private {
-        hash m_cache = hash();
+        hash<string, hash<FsEventInfo>> m_cache();
         int m_minage = 600;
 
         int m_sleepSecs = 30;
@@ -273,7 +279,7 @@ public class FsEventPoller::AbstractDelayedFsEventPoller inherits FsEventPoller:
         |\c start_thread|\c *code|Y or N|Custom Qore::background like function. This option is mandatory if there is \c PO_NO_THREAD_CONTROL defined
         |\c sleep|\c *code|Y or N|Custom Qore::sleep() like function. This option is mandatory if there is \c PO_NO_THREAD_CONTROL defined
      */
-    constructor(string path, *hash options) : FsEventPoller::AbstractFsEventPoller(path, options) {
+    constructor(string path, *hash<auto> options) : AbstractFsEventPoller(path, options) {
         if (exists options.minage)
             m_minage = int(options.minage);
         if (m_minage < 1)
@@ -306,9 +312,14 @@ public class FsEventPoller::AbstractDelayedFsEventPoller inherits FsEventPoller:
             return;
 
         string fullpath = dir + "/" + fname;
-        logDebug("File event queued: dir: %s, fname: %s, action: %d, oldfilename: %s", dir, fname, action, oldfilename);
+        logDebug("File event queued: dir: %y fname: %y action: %d oldfilename: %y", dir, fname, action, oldfilename);
         AutoLock al(m_mutex);
-        m_cache{fullpath} = ("dir" : dir, "fname" : fname, "action" : action, "oldfilename" : oldfilename);
+        m_cache{fullpath} = <FsEventInfo>{
+            "dir": dir,
+            "fname": fname,
+            "action": action,
+            "oldfilename": oldfilename,
+        };
     }
 
     #! starts polling in the background; returns the thread ID of the polling thread
@@ -351,12 +362,11 @@ public class FsEventPoller::AbstractDelayedFsEventPoller inherits FsEventPoller:
         }
 
         while (m_run) {
-
             date dtnow = now();
 
             HashIterator it(m_cache);
             while (it.next()) {
-                *hash st = hstat(it.getKey());
+                *hash<StatInfo> st = hstat(it.getKey());
                 if ( st && (dtnow - st.mtime).durationSeconds() < m_minage ) {
                     logDebug("file %y is not old enough (minage: %d, current age: %d)", it.getKey(), m_minage, (dtnow - st.mtime).durationSeconds());
                     continue;
@@ -365,7 +375,7 @@ public class FsEventPoller::AbstractDelayedFsEventPoller inherits FsEventPoller:
                 # process the file
                 {
                     AutoLock al(m_mutex);
-                    hash vals = it.getValue();
+                    hash<FsEventInfo> vals = it.getValue();
                     logDebug("delayed event: %s -> %n", it.getKey(), vals);
                     fileEvent(vals.dir, vals.fname, vals.action, vals.oldfilename);
                     m_cache -= it.getKey();
@@ -390,5 +400,6 @@ public class FsEventPoller::AbstractDelayedFsEventPoller inherits FsEventPoller:
         m_sleep ? call_function(m_sleep, m_sleepSecs) : Qore::sleep(m_sleepSecs);
 %endif
     }
-
 } # class AbstractFsEventPoller
+} # namespace FsEventPoller
+

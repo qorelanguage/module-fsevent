@@ -34,16 +34,20 @@ FileWatcherKqueue::FileWatcherKqueue( FileWatcher * parent ) :
 
 FileWatcherKqueue::~FileWatcherKqueue()
 {
-	WatchMap::iterator iter = mWatches.begin();
+    {
+        Lock lock( mWatchesLock );
 
-	for(; iter != mWatches.end(); ++iter)
-	{
-		efSAFE_DELETE( iter->second );
-	}
+        WatchMap::iterator iter = mWatches.begin();
 
-	mWatches.clear();
+        for(; iter != mWatches.end(); ++iter)
+        {
+            efSAFE_DELETE( iter->second );
+        }
 
-	mInitOK = false;
+        mWatches.clear();
+
+        mInitOK = false;
+    }
 
 	efSAFE_DELETE( mThread );
 }
@@ -97,10 +101,8 @@ WatchID FileWatcherKqueue::addWatch(const std::string& directory, FileWatchListe
 
 		WatcherKqueue * watch = new WatcherKqueue( ++mLastWatchID, dir, watcher, recursive, this );
 
-		{
-			Lock lock( mWatchesLock );
-			mWatches.insert(std::make_pair(mLastWatchID, watch));
-		}
+        Lock lock( mWatchesLock );
+        mWatches.insert(std::make_pair(mLastWatchID, watch));
 
 		watch->addAll();
 
@@ -118,10 +120,9 @@ WatchID FileWatcherKqueue::addWatch(const std::string& directory, FileWatchListe
 			// Probably the folder has too many files, create a generic watcher
 			if ( EACCES != le )
 			{
-				WatcherGeneric * watch = new WatcherGeneric( ++mLastWatchID, dir, watcher, this, recursive );
+				WatcherGeneric * genericWatch = new WatcherGeneric( ++mLastWatchID, dir, watcher, this, recursive );
 
-				Lock lock( mWatchesLock );
-				mWatches.insert(std::make_pair(mLastWatchID, watch));
+				mWatches.insert(std::make_pair(mLastWatchID, genericWatch));
 			}
 			else
 			{
@@ -223,7 +224,7 @@ std::list<std::string> FileWatcherKqueue::directories()
 
 	WatchMap::iterator it = mWatches.begin();
 
-	for ( ; it != mWatches.end(); it++ )
+	for ( ; it != mWatches.end(); ++it )
 	{
 		dirs.push_back( it->second->Directory );
 	}
@@ -233,9 +234,11 @@ std::list<std::string> FileWatcherKqueue::directories()
 
 bool FileWatcherKqueue::pathInWatches( const std::string& path )
 {
+	Lock lock( mWatchesLock );
+
 	WatchMap::iterator it = mWatches.begin();
 
-	for ( ; it != mWatches.end(); it++ )
+	for ( ; it != mWatches.end(); ++it )
 	{
 		if ( it->second->Directory == path )
 		{

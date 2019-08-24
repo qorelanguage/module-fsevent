@@ -6,11 +6,29 @@ set (VERSION_MAJOR 1)
 set (VERSION_MINOR 0)
 set (VERSION_PATCH 0)
 
+include(CheckCXXCompilerFlag)
+include(CheckCXXSourceCompiles)
+include(CheckCXXSymbolExists)
+include(CheckIncludeFileCXX)
+
+# Check for C++11.
+CHECK_CXX_COMPILER_FLAG("-std=c++11" COMPILER_SUPPORTS_CXX11)
+if(COMPILER_SUPPORTS_CXX11)
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11")
+else()
+    message(FATAL_ERROR "The compiler ${CMAKE_CXX_COMPILER} has no C++11 support. Please use a different C++ compiler.")
+endif()
+
 # where to look first for cmake modules, before ${CMAKE_ROOT}/Modules/ is checked
 set(CMAKE_MODULE_PATH ${CMAKE_SOURCE_DIR}/cmake )
 
+# enable RPATH in macos bins (OS requires this in any case)
+if (POLICY CMP0042)
+    cmake_policy(SET CMP0042 NEW)
+endif()
 
-FIND_PACKAGE (Qore REQUIRED)
+find_package(Qore 0.9 REQUIRED)
+qore_find_pthreads()
 
 include(CheckCXXCompilerFlag)
 CHECK_CXX_COMPILER_FLAG("-std=c++11" COMPILER_SUPPORTS_CXX11)
@@ -29,13 +47,12 @@ include_directories( ${CMAKE_SOURCE_DIR}/src )
 include_directories( ${CMAKE_SOURCE_DIR}/src/include )
 include_directories( ${CMAKE_SOURCE_DIR}/src/efsw )
 
-
 set(CPP_SRC
 )
 set(QPP_SRC
     src/fsevent.qpp
     src/constants.qpp
-    src/QC_FSWatcher.qpp
+    src/QC_AbstractFsWatcher.qpp
 )
 
 set(EFSW_SRC
@@ -95,12 +112,15 @@ endif ()
 
 set(EFSW_QMOD qlib/FsEventPoller.qm)
 
-
 add_definitions(-DUSE_UTF8 -DEFSW_FSEVENTS_NOT_SUPPORTED=1)
 
 qore_wrap_qpp_value(QPP_SOURCES ${QPP_SRC})
 
 SET (module_name "fsevent")
+
+set(QORE_DOX_TMPL_SRC
+  docs/mainpage.dox.tmpl
+)
 
 add_library(${module_name} SHARED ${CPP_SRC} ${QPP_SOURCES} ${EFSW_SRC})
 
@@ -114,3 +134,10 @@ qore_user_modules(${EFSW_QMOD})
 qore_dist("${VERSION_MAJOR}.${VERSION_MINOR}.${VERSION_PATCH}")
 
 qore_config_info()
+
+FIND_PACKAGE(Doxygen)
+if (DOXYGEN_FOUND)
+  qore_wrap_dox(QORE_DOX_SRC ${QORE_DOX_TMPL_SRC})
+  add_custom_target(QORE_MOD_DOX_FILES DEPENDS ${QORE_DOX_SRC})
+  add_dependencies(docs QORE_MOD_DOX_FILES)
+endif()

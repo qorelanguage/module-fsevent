@@ -3,7 +3,7 @@
 
   Qore Programming Language
 
-  Copyright 2012-2013 Qore Technologies
+  Copyright 2012 - 2019 Qore Technologies, s.r.o.
 
   This library is free software; you can redistribute it and/or
   modify it under the terms of the GNU Lesser General Public
@@ -20,81 +20,26 @@
   Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 */
 
-
 #include <qore/Qore.h>
 
-
-
-/** @mainpage %Qore %FSEvent Module
-
-A Qore wrapper around <a href="https://bitbucket.org/SpartanJ/efsw/">Efsw library</a> by Martín Lucas Golini.
-
-This module is released under a choice of two licenses:
-
- - LGPL 2.1
- - MIT (see COPYING.MIT in the source distribution for more information)
-
-FSEvent monitors the file system asynchronously for changes to files and directories by
-watching a list of specified paths, and raises events when a directory or file change.
-
-It supports recursive directories watch, tracking the entire sub directory tree.
-
-It currently supports the following platforms:
-
- - Linux via inotify
- - Windows via I/O Completion Ports
- - Mac OS X via FSEvents or kqueue
- - FreeBSD/BSD via kqueue
- - OS-independent generic watcher (polling the disk for directory snapshots and comparing them periodically)
-
-If any of the backend fails to start by any reason, it will fallback to the OS-independent implementation
-
-
-@section basic_usage Basic usage
-
-See @ref Qore::FSEvents::FSWatcher for full reference including simple example
-
-
-@section platform_limitations Platform limitations and clarifications
-
-Windows and FSEvents Mac OS X implementation can't follow symlinks ( it will ignore followSymlinks() and allowOutOfScopeLinks() ).
-
-Kqueue implementation is limited by the maximun number of file descriptors allowed per process by the OS, in the case of reaching the file descriptors limit ( in BSD around 18000 and in OS X around 10240 ) it will fallback to the generic file watcher.
-
-OS X will only use Kqueue if OS X version is below to 10.5, and this implementation needs to be compiled separately from the OS X >= 10.5 implementation. Since there's no way to compile FSEvents backend in OS X below 10.5.
-
-FSEvents for OS X Lion and beyond in some cases will generate more actions that in reality ocurred, since fine-grained implementation of FSEvents doesn't give the order of the actions retrieved, in some cases i need to guess/aproximate the order of them.
-
-Generic watcher relies on the inode information to detect file and directories renames/move. Since Windows has no concept of inodes as Unix platforms do, there is no current reliable way of determining file/directory movement on Windows without help from the Windows API ( this is replaced with Add/Delete events ).
-
-Linux versions below 2.6.13 are not supported, since inotify wasn't implemented yet. I'm not interested in support older kernels, since i don't see the point. If someone needs this open an issue in the issue tracker and i may consider implenent a dnotify backend.
-
-OS-independent watcher, Kqueue and FSEvents for OS X below 10.5 keep cache of the directories structures, to be able to detect changes in the directories. This means that there's a memory overhead for this backends.
-
-*/
-
-static QoreNamespace FSEventsNS("FSEvents");
-
+static QoreNamespace FsEventsNS("FsEvents");
 
 void init_constants_constants(QoreNamespace& ns);
-QoreClass* initFSWatcherClass(QoreNamespace& ns);
+QoreClass* initAbstractFsWatcherClass(QoreNamespace& ns);
 
-
-QoreStringNode * fsevent_module_init() {
-    init_constants_constants(FSEventsNS);
-    FSEventsNS.addSystemClass(initFSWatcherClass(FSEventsNS));
-
-    return 0;
+QoreStringNode* fsevent_module_init() {
+    init_constants_constants(FsEventsNS);
+    FsEventsNS.addSystemClass(initAbstractFsWatcherClass(FsEventsNS));
+    return nullptr;
 }
 
 void fsevent_module_ns_init(QoreNamespace *rns, QoreNamespace *qns) {
-    qns->addNamespace(FSEventsNS.copy());
+    qns->addNamespace(FsEventsNS.copy());
 }
 
 void fsevent_module_delete() {
    // nothing to do here in this case
 }
-
 
 // qore module symbols
 DLLEXPORT char qore_module_name[] = "fsevent";
