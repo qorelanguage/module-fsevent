@@ -15,7 +15,7 @@ const THREADS = 10;
 our *hash props;
 
 const DEFAULT_OPTS = (
-        "actions"       : ( FSEvents::ADD, FSEvents::MODIFIED, FSEvents::DELETE, FSEvents::MOVED, ),
+        "actions"       : ( FsEvents::ADD, FsEvents::MODIFIED, FsEvents::DELETE, FsEvents::MOVED, ),
         "log_info"      : sub (string msg) { logger("LOG INFO", msg); },
         "log_detail"    : sub (string msg) { logger("LOG DETAIL", msg); },
         "log_debug"     : sub (string msg) { logger("LOG DEBUG", msg); },

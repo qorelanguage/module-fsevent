@@ -24,13 +24,13 @@ synchronized sub get_tmp_fname() {
 }
 
 
-class Watcher inherits public FSWatcher
+class Watcher inherits public AbstractFsWatcher
 {
     private {
         Main m_ut;
     }
 
-    constructor(Main ut) : FSWatcher() {
+    constructor(Main ut) : AbstractFsWatcher() {
         m_ut = ut;
     }
 

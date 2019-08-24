@@ -1,0 +1,53 @@
+/** @mainpage Qore fsevent Module
+
+    @tableofcontents
+
+    @section fseventintro fsevent Module Introduction
+
+    The \c fsevent module provides a Qore wrapper around the
+    <a href="https://bitbucket.org/SpartanJ/efsw/">Efsw library</a> by Martín Lucas Golini.
+
+    This module is released under a choice of two licenses:
+
+    - LGPL 2.1
+    - MIT (see COPYING.MIT in the source distribution for more information)
+
+    \c fsevent monitors the file system asynchronously for changes to files and directories by
+    watching a list of specified paths, and raises events when a directory or file changes.
+
+    It supports watching directories recursively, optionally tracking entire subdirectory trees.
+
+    It currently supports the following platforms:
+
+    - Linux via inotify
+    - Windows via I/O Completion Ports
+    - MacOS and FreeBSD/BSD via kqueue
+    - OS-independent generic watcher (polling the disk for directory snapshots and comparing them periodically)
+
+    If any of the backend fails to start by any reason, it will fallback to the OS-independent implementation
+
+    @section basic_usage Basic usage
+
+    See @ref Qore::FsEvents::AbstractFsWatcher "AbstractFsWatcher" for a full reference including a simple example.
+
+    @section platform_notes Platform Notes
+
+    Windows implementations can't follow symlinks (followSymlinks() and allowOutOfScopeLinks() are ignored).
+
+    The \c kqueue implementation is limited by the maximun number of file descriptors allowed per process by the OS,
+    in the case of reaching the file descriptors limit, it will fallback to the generic file watcher.
+
+    The generic watcher relies on the inode information to detect file and directories renames/moves.  Since Windows
+    has no concept of inodes, there is no current reliable way of determining file/directory movement on Windows
+    without help from the Windows API (this is replaced with Add/Delete events).
+
+    Linux versions below 2.6.13 are not supported, since inotify wasn't implemented yet.
+
+    The OS-independent watcher and Kqueue keep a cache of the directory structures to be able to detect changes in the
+    directories. This entails memory overhead for these backends.
+
+    @section fseventreleasenotes fsevent Module Release Notes
+
+    @subsection fsevent_1_0 fsevent Module Version 1.0
+    - initial public release
+*/

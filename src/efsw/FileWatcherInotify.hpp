@@ -8,8 +8,6 @@
 #include <efsw/WatcherInotify.hpp>
 #include <map>
 
-#include <qore/Qore.h>
-
 namespace efsw
 {
 
@@ -66,6 +64,8 @@ class FileWatcherInotify : public FileWatcherImpl
 		void removeWatchLocked(WatchID watchid);
 
 		void checkForNewWatcher( Watcher* watch, std::string fpath );
+
+		Watcher * watcherContainsDirectory( std::string dir );
 };
 
 }

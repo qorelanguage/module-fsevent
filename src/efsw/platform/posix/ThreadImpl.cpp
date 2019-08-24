@@ -25,8 +25,10 @@ void ThreadImpl::wait()
 	// Wait for the thread to finish, no timeout
 	if ( mIsActive )
 	{
-                assert( pthread_equal( pthread_self(), mThread ) == 0 );
-                pthread_join( mThread, NULL );
+		assert( pthread_equal( pthread_self(), mThread ) == 0 );
+
+		pthread_join( mThread, NULL );
+
 		mIsActive = false; // Reset the thread state
 	}
 }

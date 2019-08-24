@@ -24,6 +24,8 @@ typedef std::map<WatchID, Watcher*> WatchMap;
 
 class WatcherKqueue : public Watcher
 {
+    friend class WatcherHelper;
+
 	public:
 		WatcherKqueue( WatchID watchid, const std::string& dirname, FileWatchListener* listener, bool recursive, FileWatcherKqueue * watcher, WatcherKqueue * parent = NULL );
 
@@ -53,11 +55,14 @@ class WatcherKqueue : public Watcher
 		WatchID addWatch(const std::string& directory, FileWatchListener* watcher, bool recursive, WatcherKqueue * parent);
 
 		void removeWatch (WatchID watchid );
-		
+
 		bool initOK();
 
 		int lastErrno();
 	protected:
+        // for atomic access to mWatches
+		Mutex               mWatchesLock;
+
 		WatchMap			mWatches;
 		int					mLastWatchID;
 
@@ -72,12 +77,12 @@ class WatcherKqueue : public Watcher
 		FileWatcherKqueue *	mWatcher;
 
 		WatcherKqueue *		mParent;
-		
+
 		bool				mInitOK;
 		int					mErrno;
 
 		bool pathInWatches( const std::string& path );
-		
+
 		bool pathInParent( const std::string& path );
 
 		Watcher * findWatcher( const std::string path );

@@ -16,6 +16,9 @@
 #include <efsw/FileSystem.hpp>
 #include <efsw/WatcherGeneric.hpp>
 #include <efsw/FileWatcherKqueue.hpp>
+#include <efsw/Lock.hpp>
+
+#include <qore/Qore.h>
 
 #define KEVENT_RESERVE_VALUE (10)
 
@@ -54,7 +57,7 @@ WatcherKqueue::WatcherKqueue(WatchID watchid, const std::string& dirname, FileWa
 	if ( -1 == mKqueue )
 	{
 		efDEBUG( "kqueue() returned invalid descriptor for directory %s. File descriptors count: %ld\n", Directory.c_str(), mWatcher->mFileDescriptorCount );
-		
+
 		mInitOK = false;
 		mErrno = errno;
 	}
@@ -79,8 +82,11 @@ WatcherKqueue::~WatcherKqueue()
 		}
 	}
 
+    //printf("closing kqueue: %p: %d\n", this, mKqueue);
+
 	close( mKqueue );
-	
+    mKqueue = -1;
+
 	mWatcher->removeFD();
 }
 
@@ -98,18 +104,18 @@ void WatcherKqueue::addAll()
 
 	// add base dir
 	int fd = open( Directory.c_str(), O_EVTONLY );
-	
+
 	if ( -1 == fd )
 	{
 		efDEBUG( "addAll(): Couldn't open folder: %s\n", Directory.c_str() );
-		
+
 		if ( EACCES != errno )
 		{
 			mInitOK = false;
 		}
 
 		mErrno = errno;
-		
+
 		return;
 	}
 
@@ -161,18 +167,21 @@ void WatcherKqueue::removeAll()
 {
 	efDEBUG( "removeAll(): Removing all child watchers\n" );
 
-	std::list<WatchID> erase;
+    // ensure atomic access to mWatches
+    Lock lock( mWatchesLock );
 
-	for ( WatchMap::iterator it = mWatches.begin(); it != mWatches.end(); it++ )
+	for ( WatchMap::iterator it = mWatches.begin(); it != mWatches.end(); )
 	{
 		efDEBUG( "removeAll(): Removed child watcher %s\n", it->second->Directory.c_str() );
 
-		erase.push_back( it->second->ID );
-	}
+        Watcher * watch = it->second;
 
-	for ( std::list<WatchID>::iterator eit = erase.begin(); eit != erase.end(); eit++ )
-	{
-		removeWatch( *eit );
+        WatchMap::iterator delete_me = it;
+        ++it;
+
+        mWatches.erase(delete_me);
+
+        efSAFE_DELETE( watch );
 	}
 }
 
@@ -186,16 +195,16 @@ void WatcherKqueue::addFile(const std::string& name, bool emitEvents)
 	if( fd == -1 )
 	{
 		efDEBUG( "addFile(): Could open file descriptor for %s. File descriptor count: %ld\n", name.c_str(), mWatcher->mFileDescriptorCount );
-		
+
 		Errors::Log::createLastError( Errors::FileNotReadable, name );
-		
+
 		if ( EACCES != errno )
 		{
 			mInitOK = false;
 		}
 
 		mErrno = errno;
-		
+
 		return;
 	}
 
@@ -390,6 +399,9 @@ void WatcherKqueue::sendDirChanged()
 
 void WatcherKqueue::watch()
 {
+    // ensure atomic access to mWatches
+    Lock lock( mWatchesLock );
+
 	if ( -1 == mKqueue )
 	{
 		return;
@@ -407,13 +419,20 @@ void WatcherKqueue::watch()
 	bool needScan = false;
 
 	// Then we get the the events of the current folder
-	while( ( nev = kevent( mKqueue, &mChangeList[0], mChangeListCount + 1, &event, 1, &mWatcher->mTimeOut ) ) != 0 )
-	{
+	while(true) {
+        //printf("getting kevent: %p %d\n", this, mKqueue);
+        nev = kevent( mKqueue, &mChangeList[0], mChangeListCount + 1, &event, 1, &mWatcher->mTimeOut );
+        if (!nev) {
+            break;
+        }
+
 		// An error ocurred?
 		if( nev == -1 )
 		{
 			efDEBUG( "watch(): Error on directory %s\n", Directory.c_str() );
-			perror("kevent");
+            QoreStringMaker str("watch(): Error on directory %s mKqueue: %d", Directory.c_str(), mKqueue);
+            perror(str.c_str());
+			//perror("kevent");
 			break;
 		}
 		else
@@ -476,6 +495,9 @@ void WatcherKqueue::watch()
 
 Watcher * WatcherKqueue::findWatcher( const std::string path )
 {
+    // ensure atomic access to mWatches
+    Lock lock( mWatchesLock );
+
 	WatchMap::iterator it = mWatches.begin();
 
 	for ( ; it != mWatches.end(); it++ )
@@ -560,6 +582,9 @@ WatchID WatcherKqueue::addWatch( const std::string& directory, FileWatchListener
 	{
 		WatcherKqueue* watch = new WatcherKqueue( ++mLastWatchID, dir, watcher, recursive, mWatcher, parent );
 
+        // ensure atomic access to mWatches
+        Lock lock( mWatchesLock );
+
 		mWatches.insert(std::make_pair(mLastWatchID, watch));
 
 		watch->addAll();
@@ -600,6 +625,9 @@ WatchID WatcherKqueue::addWatch( const std::string& directory, FileWatchListener
 
 		WatcherGeneric * watch = new WatcherGeneric( ++mLastWatchID, dir, watcher, mWatcher, recursive );
 
+        // ensure atomic access to mWatches
+        Lock lock( mWatchesLock );
+
 		mWatches.insert(std::make_pair(mLastWatchID, watch));
 	}
 
@@ -613,6 +641,9 @@ bool WatcherKqueue::initOK()
 
 void WatcherKqueue::removeWatch( WatchID watchid )
 {
+    // ensure atomic access to mWatches
+    Lock lock( mWatchesLock );
+
 	WatchMap::iterator iter = mWatches.find(watchid);
 
 	if(iter == mWatches.end())
