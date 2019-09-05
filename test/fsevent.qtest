@@ -6,26 +6,20 @@
 %requires QUnit
 %requires fsevent
 
-#%include ./_some_module_to_test
-
 %exec-class Main
-
 
 const ITERATIONS = 100;
 const THREADS = 10;
 
-
 # let's try to find unique file name
 our hash fnames;
 synchronized sub get_tmp_fname() {
-    my int tid = gettid();
+    int tid = gettid();
     fnames{tid}++;
-    return sprintf("tid%d_%d.txt", tid, fnames{tid});
+    return sprintf("tid_%d_%d.txt", tid, fnames{tid});
 }
 
-
-class Watcher inherits public AbstractFsWatcher
-{
+class Watcher inherits public AbstractFsWatcher {
     private {
         Main m_ut;
     }
@@ -34,20 +28,21 @@ class Watcher inherits public AbstractFsWatcher
         m_ut = ut;
     }
 
-    nothing event(int id, string dir, string fname, int action, string oldFname) {
-        string am = ACTION_MAP{action};
-        string testname = fname + ": " + am;
+    nothing event(hash<FsEventInfo> event) {
+        string am = ACTION_MAP{event.action};
+        string testname = event.name + ": " + am;
 
-        code c = bool sub() {return m_ut.files{fname}{am} > 0; };
-        m_ut.testAssertion(testname, c);
+        on_error printf("ERROR EVENT: %y (%y) FILE: %y\n", event, am, m_ut.files{event.name});
 
-        m_ut.files{fname}{am}--;
-        if (m_ut.files{fname}{am} == 0) {
-            delete m_ut.files{fname}{am};
+        m_ut.assertGt(0, m_ut.files{event.name}{am});
+
+        m_ut.files{event.name}{am}--;
+        if (m_ut.files{event.name}{am} == 0) {
+            delete m_ut.files{event.name}{am};
         }
 
-        if (!m_ut.files{fname}.size()) {
-            delete m_ut.files{fname};
+        if (!m_ut.files{event.name}.size()) {
+            delete m_ut.files{event.name};
         }
     }
 
@@ -85,7 +80,7 @@ public class Main inherits QUnit::Test {
     }
 
     # This test is a little bit tricky. We just prepare set of expected
-    # events and these are checked in the time of real event emitation.
+    # events and these are checked in the time of real event emission.
     # These actions are removed then and we can assume that the test
     # is complete when there are no expected actions for given file name.
     private testOneFile() {
@@ -98,6 +93,8 @@ public class Main inherits QUnit::Test {
 
         files{f1}."ADD" = 1;
         files{f1}."MODIFIED" = 2;
+        # sometimes we get an ADD event for f2
+        files{f2}."ADD" = 1;
         files{f2}."MOVED" = 1;
         files{f1}."MOVED" = 1;
         files{f1}."DELETE" = 1;
@@ -124,7 +121,7 @@ public class Main inherits QUnit::Test {
         sleep(1);
     }
 
-    private testFilesSet() {
+    private testFileSet() {
         for (int i = 0; i < ITERATIONS; i++) {
             testOneFile();
         }
@@ -134,7 +131,7 @@ public class Main inherits QUnit::Test {
         Watcher w(self);
         w.addPath(m_dir.path(), True);
 
-        testFilesSet();
+        testFileSet();
 
         m_c.waitForZero();
         w.removePath(m_dir.path());
@@ -149,7 +146,7 @@ public class Main inherits QUnit::Test {
         w.addPath(m_dir.path(), True);
 
         for (int i = 0; i < THREADS; i++) {
-            background testFilesSet();
+            background testFileSet();
         }
 
         m_c.dec();

@@ -14,12 +14,12 @@ const THREADS = 10;
 
 our *hash props;
 
-const DEFAULT_OPTS = (
-        "actions"       : ( FsEvents::ADD, FsEvents::MODIFIED, FsEvents::DELETE, FsEvents::MOVED, ),
-        "log_info"      : sub (string msg) { logger("LOG INFO", msg); },
-        "log_detail"    : sub (string msg) { logger("LOG DETAIL", msg); },
-        "log_debug"     : sub (string msg) { logger("LOG DEBUG", msg); },
-    );
+const DEFAULT_OPTS = {
+    "actions"       : ( FsEvents::ADD, FsEvents::MODIFIED, FsEvents::DELETE, FsEvents::MOVED, ),
+    "log_info"      : sub (string msg) { logger("LOG INFO", msg); },
+    "log_detail"    : sub (string msg) { logger("LOG DETAIL", msg); },
+    "log_debug"     : sub (string msg) { logger("LOG DEBUG", msg); },
+};
 
 # let's try to find unique file name
 our hash fnames;
@@ -54,24 +54,25 @@ class TestFsEventPoller inherits public FsEventPoller::AbstractFsEventPoller
         Main m_ut;
     }
 
-    constructor(Main ut, string path, *hash opts) : FsEventPoller::AbstractFsEventPoller(path, opts) {
+    constructor(Main ut, string path, *hash<AbstractFsEventPollerOptionInfo> opts)
+        : FsEventPoller::AbstractFsEventPoller(path, opts) {
         m_ut = ut;
     }
 
-    nothing fileEvent(string dirname, string fname, int action, string oldfilename) {
-        string am = ACTION_MAP{action};
-        string testname = fname + ": " + am;
+    fileEvent(hash<FsEventInfo> event) {
+        string am = ACTION_MAP{event.action};
+        string testname = event.name + ": " + am;
 
-        code c = bool sub() {return m_ut.files{fname}{am} > 0; };
+        code c = bool sub() {return m_ut.files{event.name}{am} > 0; };
         m_ut.testAssertion(testname, c);
 
-        m_ut.files{fname}{am}--;
-        if (m_ut.files{fname}{am} == 0) {
-            delete m_ut.files{fname}{am};
+        m_ut.files{event.name}{am}--;
+        if (m_ut.files{event.name}{am} == 0) {
+            delete m_ut.files{event.name}{am};
         }
 
-        if (!m_ut.files{fname}.size()) {
-            delete m_ut.files{fname};
+        if (!m_ut.files{event.name}.size()) {
+            delete m_ut.files{event.name};
         }
     }
 
@@ -83,24 +84,24 @@ class TestDelayedFsEventPoller inherits public FsEventPoller::AbstractDelayedFsE
         Main m_ut;
     }
 
-    constructor(Main ut, string path, *hash opts) : FsEventPoller::AbstractDelayedFsEventPoller(path, opts) {
+    constructor(Main ut, string path, *hash<FsDelayedEventPollerOptionInfo> opts) : FsEventPoller::AbstractDelayedFsEventPoller(path, opts) {
         m_ut = ut;
     }
 
-    nothing fileEvent(string dirname, string fname, int action, string oldfilename) {
-        string am = ACTION_MAP{action};
-        string testname = fname + ": " + am;
+    fileEvent(hash<FsEventInfo> event) {
+        string am = ACTION_MAP{event.action};
+        string testname = event.name + ": " + am;
 
-        code c = bool sub() {return m_ut.files{fname}{am} > 0; };
+        code c = bool sub() {return m_ut.files{event.name}{am} > 0; };
         m_ut.testAssertion(testname, c);
 
-        m_ut.files{fname}{am}--;
-        if (m_ut.files{fname}{am} == 0) {
-            delete m_ut.files{fname}{am};
+        m_ut.files{event.name}{am}--;
+        if (m_ut.files{event.name}{am} == 0) {
+            delete m_ut.files{event.name}{am};
         }
 
-        if (!m_ut.files{fname}.size()) {
-            delete m_ut.files{fname};
+        if (!m_ut.files{event.name}.size()) {
+            delete m_ut.files{event.name};
         }
     }
 
@@ -172,7 +173,7 @@ public class Main inherits QUnit::Test {
     }
 
     singleInstance() {
-        hash opts = DEFAULT_OPTS;
+        hash<AbstractFsEventPollerOptionInfo> opts(DEFAULT_OPTS);
         TestFsEventPoller w(self, m_dir.path(), opts);
 
         testOneFile();
@@ -190,7 +191,7 @@ public class Main inherits QUnit::Test {
     }
 
     multiInstance() {
-        hash opts = DEFAULT_OPTS;
+        hash<AbstractFsEventPollerOptionInfo> opts(DEFAULT_OPTS);
         TestFsEventPoller w(self, m_dir.path(), opts);
 
         testFilesSet();
@@ -203,7 +204,7 @@ public class Main inherits QUnit::Test {
 
     multipleThreads() {
         m_c.inc();
-        hash opts = DEFAULT_OPTS;
+        hash<AbstractFsEventPollerOptionInfo> opts(DEFAULT_OPTS);
         TestFsEventPoller w(self, m_dir.path(), opts);
 
         for (int i = 0; i < THREADS; i++) {
@@ -249,10 +250,10 @@ public class Main inherits QUnit::Test {
     }
 
     singleDelayedInstance() {
-        hash opts = DEFAULT_OPTS + (
-                "minage" : 1,
-                "sleep_time" : 1,
-            );
+        hash<FsDelayedEventPollerOptionInfo> opts(DEFAULT_OPTS + {
+            "minage" : 1,
+            "sleep_time" : 1,
+        });
         TestDelayedFsEventPoller w(self, m_dir.path(), opts);
         w.start();
 
@@ -266,12 +267,12 @@ public class Main inherits QUnit::Test {
     }
 
     customFunctions() {
-        hash opts = DEFAULT_OPTS + (
-                "minage" : 1,
-                "sleep_time" : 1,
-                "start_thread" : \custom_start_thread(),
-                "sleep" : \custom_sleep(),
-            );
+        hash<FsDelayedEventPollerOptionInfo> opts(DEFAULT_OPTS + {
+            "minage": 1,
+            "sleep_time": 1,
+            "start_thread": \custom_start_thread(),
+            "sleep": \custom_sleep(),
+        });
         TestDelayedFsEventPoller w(self, m_dir.path(), opts);
         w.start();
 
@@ -291,10 +292,10 @@ public class Main inherits QUnit::Test {
     }
 
     multiDelayedInstance() {
-        hash opts = DEFAULT_OPTS + (
-                "minage" : 1,
-                "sleep_time" : 1,
-            );
+        hash<FsDelayedEventPollerOptionInfo> opts(DEFAULT_OPTS + {
+            "minage" : 1,
+            "sleep_time" : 1,
+        });
         TestDelayedFsEventPoller w(self, m_dir.path(), opts);
         w.start();
 
@@ -309,7 +310,7 @@ public class Main inherits QUnit::Test {
 
     multipleDelayedThreads() {
         m_c.inc();
-        hash opts = DEFAULT_OPTS;
+        hash<FsDelayedEventPollerOptionInfo> opts(DEFAULT_OPTS);
         TestDelayedFsEventPoller w(self, m_dir.path(), opts);
 
         for (int i = 0; i < THREADS; i++) {
