@@ -10,6 +10,8 @@ using namespace efsw;
 DLLLOCAL extern qore_classid_t CID_ABSTRACTFSWATCHER;
 DLLLOCAL extern QoreClass* QC_ABSTRACTFSWATCHER;
 
+DLLLOCAL extern const TypedHashDecl* hashdeclFsEventInfo;
+
 // handle external (oracle) threads for qore/aq
 class CallbackThreadManager {
 public:
@@ -147,15 +149,39 @@ void FsWatcherPriv::handleFileAction(WatchID watchid, const std::string& dir, co
     ExceptionSink xsink;
 
     ReferenceHolder<QoreListNode> args(new QoreListNode(autoTypeInfo), &xsink);
-    args->push(watchid, nullptr);
-    args->push(new QoreStringNode(dir), nullptr);
-    args->push(new QoreStringNode(filename), nullptr);
-    args->push(action, nullptr);
-    args->push(new QoreStringNode(oldFilename), nullptr);
+    ReferenceHolder<QoreHashNode> event_info(new QoreHashNode(hashdeclFsEventInfo, &xsink), &xsink);
+    event_info->setKeyValue("id", watchid, &xsink);
+    event_info->setKeyValue("dir", new QoreStringNode(dir), &xsink);
+    event_info->setKeyValue("name", new QoreStringNode(filename), &xsink);
+    event_info->setKeyValue("action", action, &xsink);
+    if (!oldFilename.empty()) {
+        event_info->setKeyValue("old_name", new QoreStringNode(oldFilename), &xsink);
+    }
+    args->push(event_info.release(), &xsink);
 
     //printd(5, "FsWatcherPriv::handleFileAction this: %p m_obj: %p refs: %d\n", this, m_obj, m_obj->reference_count());
     event->execManaged(m_obj, *args, &xsink).discard(&xsink);
     //m_obj->evalMethodValue("event", *args, &xsink).discard(&xsink);
+}
+
+//! Filesystem Event information
+/**
+*/
+hashdecl FsEventInfo {
+    //! monitoring id as returned from AbstractFsWatcher::addPath()
+    int id;
+
+    //! the directory path
+    string dir;
+
+    //! the affected file name (without the path)
+    string name;
+
+    //! the action type; one of @ref filesystem_constants
+    int action;
+
+    //! oldFname the old file name if the action is Qore::FsEvents::MOVED
+    *string old_name;
 }
 
 //! Implementation of filesystem event watcher.
@@ -168,8 +194,9 @@ void FsWatcherPriv::handleFileAction(WatchID watchid, const std::string& dir, co
 %requires fsevent
 
 class MyWatcher inherits FsEvents::AbstractFsWatcher {
-    event(int id, string dir, string fname, int action, string oldFname) {
-        printf("FS event: %d, %s, %s, %d, %s\n", id, dir, fname, action, oldFname);
+    event(hash<FsEventInfo> event) {
+        printf("FS event: %d, %s, %s, %d, %s\n", event.id, event.dir,
+            event.name, event.action, event.old_name);
     }
 }
 
@@ -211,7 +238,7 @@ AbstractFsWatcher::destructor() {
     @param path	a string with path to be monitored
     @param recursive False = only the top level directory is monitored; True = all sub-directories are monitored too
 
-    @returns integer id of monitored tree
+    @returns an integer id of the monitored tree
 
     The returning id can be used in AbstractFsWatcher::removePath()
  */
@@ -223,7 +250,7 @@ int AbstractFsWatcher::addPath(string path, bool recursive = False) {
 /**
     @param id an integer value. Obtained by AbstractFsWatcher::addPath
 
-    This method uses a map lookup O(logn)
+    This method uses a map lookup: \a O(ln(n))
  */
 AbstractFsWatcher::removePath(int id) {
     priv->removeWatch(id, xsink);
@@ -233,7 +260,7 @@ AbstractFsWatcher::removePath(int id) {
 /**
     @param path	a named path to remove
 
-    This method uses a brute force list search O(nlogn)
+    This method uses a linear search: \a O(n)
  */
 AbstractFsWatcher::removePath(string path) {
     priv->removeWatch(path->getBuffer(), xsink);
@@ -241,18 +268,14 @@ AbstractFsWatcher::removePath(string path) {
 
 //! Return all monitored directories.
 /**
-    @return list of all registered (top-level) directories in this watcher instance or @ref Qore::NOTHING if there is no directory registered
+    @return list of all registered (top-level) directories in this watcher instance or @ref nothing if there is no
+    directory registered
  */
 *list<string> AbstractFsWatcher::directories() {
     return priv->directories(xsink);
 }
 
 //! Filesystem event handler/callback.
-/**
-    @param id	monitoring id as returned from AbstractFsWatcher::addPath
-    @param dir	directory path
-    @param fname	affected file name (without path)
-    @param action	action type. One of filesystem_constants
-    @param oldFname	old file name if is the action of type Qore::FsEvents::MOVED
+/** @param event the filesystem event hash
  */
-abstract AbstractFsWatcher::event(int id, string dir, string fname, int action, string oldFname);
+abstract AbstractFsWatcher::event(hash<FsEventInfo> event);
