@@ -1,7 +1,7 @@
 # -*- mode: qore; indent-tabs-mode: nil -*-
 #! @file FsEventPoller.qm filePoller: Filesystem based polling solution
 
-/*  FsEventPoller.qm Copyright (C) 2014 - 2019 Qore Technologies s.r.o.
+/*  FsEventPoller.qm Copyright (C) 2014 - 2020 Qore Technologies s.r.o.
 
     Permission is hereby granted, free of charge, to any person obtaining a
     copy of this software and associated documentation files (the "Software"),
@@ -363,7 +363,7 @@ public class AbstractDelayedFsEventPoller inherits AbstractFsEventPoller {
             throw "FILEPOLLER-ERROR", sprintf("min_age cannot be < 1 (val: %d)", m_minage);
 
         if (exists options.sleep_time && options.sleep_time < 1)
-            throw "FILEPOLLER-ERROR", sprintf("poll_interval cannot be <= 0 (val: %d)", options.poll_interval);
+            throw "FILEPOLLER-ERROR", sprintf("sleep_time cannot be <= 0 (val: %d)", options.sleep_time);
 
         if (exists options.sleep_time)
             m_sleepSecs = int(options.sleep_time);
