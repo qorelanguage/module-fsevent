@@ -4,10 +4,10 @@
 
 /** @defgroup fsevent_constants Filesystem Events Constants
 
-    Constants used for \c action value in @ref Qore::FSEvents::FSWatcher \c event() method
+    Constants used for \c action value in @ref Qore::FsEvents::AbstractFsWatcher \c event() method
  */
 //@{
-namespace Qore::FSEvents;
+namespace Qore::FsEvents;
 
 //! File added
 const ADD = 1;
@@ -55,4 +55,3 @@ const ACTION_RMAP = (
 
 
 //@}
-
