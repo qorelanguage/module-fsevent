@@ -24,9 +24,7 @@
 
 # make sure we have the required qore version
 %requires qore >= 0.9.4
-
-# requires ssh2 functionality
-%requires (reexport) ssh2
+%requires (reexport) fsevent
 
 # assume local vars and do not allow $ chars
 %new-style
