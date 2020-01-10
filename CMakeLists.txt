@@ -1,10 +1,6 @@
-cmake_minimum_required(VERSION 2.8.3)
+cmake_minimum_required(VERSION 3.0.0)
 
-project(qore-fsevent-module)
-
-set (VERSION_MAJOR 1)
-set (VERSION_MINOR 0)
-set (VERSION_PATCH 0)
+project(qore-fsevent-module VERSION 1.0.0)
 
 include(CheckCXXCompilerFlag)
 include(CheckCXXSourceCompiles)
@@ -110,8 +106,6 @@ else ()
     )
 endif ()
 
-set(EFSW_QMOD qlib/FsEventPoller.qm)
-
 add_definitions(-DUSE_UTF8 -DEFSW_FSEVENTS_NOT_SUPPORTED=1)
 
 qore_wrap_qpp_value(QPP_SOURCES ${QPP_SRC})
@@ -128,10 +122,14 @@ if (WIN32 AND MINGW AND MSYS)
     target_compile_definitions(${module_name} PUBLIC BUILDING_DLL)
 endif (WIN32 AND MINGW AND MSYS)
 
-qore_binary_module(${module_name} "${VERSION_MAJOR}.${VERSION_MINOR}.${VERSION_PATCH}")
-qore_user_modules(${EFSW_QMOD})
+qore_binary_module_new(${module_name} ${PROJECT_VERSION} "")
 
-qore_dist("${VERSION_MAJOR}.${VERSION_MINOR}.${VERSION_PATCH}")
+add_custom_target(docs-fsevent)
+
+qore_module_user_module("qlib/FsEventPollerUtil.qm" "")
+qore_module_user_module("qlib/FsEventPoller.qm" "FsEventPollerUtil")
+
+qore_dist(${PROJECT_VERSION})
 
 qore_config_info()
 
