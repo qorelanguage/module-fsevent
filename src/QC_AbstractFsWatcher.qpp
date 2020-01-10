@@ -167,7 +167,7 @@ void FsWatcherPriv::handleFileAction(WatchID watchid, const std::string& dir, co
 //! Filesystem Event information
 /**
 */
-hashdecl FsEventInfo {
+hashdecl Qore::FsEvents::FsEventInfo {
     //! monitoring id as returned from AbstractFsWatcher::addPath()
     int id;
 

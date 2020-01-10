@@ -1,10 +1,9 @@
 #include <qore/Qore.h>
 #include <efsw/efsw.hpp>
 
-
 /** @defgroup fsevent_constants Filesystem Events Constants
 
-    Constants used for \c action value in @ref Qore::FsEvents::AbstractFsWatcher \c event() method
+    Constants used for \c action value in the @ref Qore::FsEvents::AbstractFsWatcher::event() "AbstractFsWatcher::event()" method
  */
 //@{
 namespace Qore::FsEvents;
@@ -39,19 +38,17 @@ const ST_MOVED = "MOVED";
 
 //! A helper map of int - string representation of the file action
 const ACTION_MAP = (
-        1 : "ADD",
-        2 : "DELETE",
-        3 : "MODIFIED",
-        4 : "MOVED",
-    );
+    1: "ADD",
+    2: "DELETE",
+    3: "MODIFIED",
+    4: "MOVED",
+);
 
 //! A helper map of string - int representation of the file action
 const ACTION_RMAP = (
-        "ADD" : 1,
-        "DELETE" : 2,
-        "MODIFIED" : 3,
-        "MOVED" : 4,
-    );
-
-
+    "ADD": 1,
+    "DELETE": 2,
+    "MODIFIED": 3,
+    "MOVED": 4,
+);
 //@}

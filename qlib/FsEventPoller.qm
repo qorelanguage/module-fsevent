@@ -79,12 +79,12 @@ module FsEventPoller {
     Initial release
 */
 
+%requires reflection
+
 #! main module namespace
 public namespace FsEventPoller {
 #! this implementation version
 public const version     = "0.1.0";
-
-%requires reflection
 
 #! AbstractDelayedFsEventPoller option info hash
 /**
