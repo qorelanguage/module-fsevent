@@ -108,7 +108,7 @@ endif ()
 
 add_definitions(-DUSE_UTF8 -DEFSW_FSEVENTS_NOT_SUPPORTED=1)
 
-qore_wrap_qpp_value(QPP_SOURCES ${QPP_SRC})
+qore_wrap_qpp_value(QPP_SOURCES DOXLIST _dox_src ${QPP_SRC})
 
 SET (module_name "fsevent")
 
@@ -122,12 +122,11 @@ if (WIN32 AND MINGW AND MSYS)
     target_compile_definitions(${module_name} PUBLIC BUILDING_DLL)
 endif (WIN32 AND MINGW AND MSYS)
 
-qore_binary_module_new(${module_name} ${PROJECT_VERSION} "")
+set(MODULE_DOX_INPUT ${CMAKE_BINARY_DIR}/mainpage.dox ${_dox_src})
+qore_external_binary_module(${module_name} ${PROJECT_VERSION})
 
-add_custom_target(docs-fsevent)
-
-qore_module_user_module("qlib/FsEventPollerUtil.qm" "")
-qore_module_user_module("qlib/FsEventPoller.qm" "FsEventPollerUtil")
+qore_external_user_module("qlib/FsEventPollerUtil.qm" "")
+qore_external_user_module("qlib/FsEventPoller.qm" "FsEventPollerUtil")
 
 qore_dist(${PROJECT_VERSION})
 
@@ -137,5 +136,5 @@ FIND_PACKAGE(Doxygen)
 if (DOXYGEN_FOUND)
   qore_wrap_dox(QORE_DOX_SRC ${QORE_DOX_TMPL_SRC})
   add_custom_target(QORE_MOD_DOX_FILES DEPENDS ${QORE_DOX_SRC})
-  add_dependencies(docs QORE_MOD_DOX_FILES)
+  add_dependencies(docs-module QORE_MOD_DOX_FILES)
 endif()

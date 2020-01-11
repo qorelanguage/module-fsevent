@@ -177,7 +177,7 @@ hashdecl Qore::FsEvents::FsEventInfo {
     //! the affected file name (without the path)
     string name;
 
-    //! the action type; one of @ref filesystem_constants
+    //! the action type; one of @ref fsevent_constants
     int action;
 
     //! oldFname the old file name if the action is Qore::FsEvents::MOVED
