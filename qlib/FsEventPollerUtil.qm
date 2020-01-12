@@ -25,6 +25,7 @@
 # make sure we have the required qore version
 %requires qore >= 0.9.4
 %requires (reexport) fsevent
+%requires reflection
 
 # assume local vars and do not allow $ chars
 %new-style
@@ -74,7 +75,7 @@ public class FsEventPollerFileEventInfoDataType inherits HashDataType {
     constructor() {
         # add members for base hashdecl
         map addField(new QoreDataField($1.getName(), FieldDescriptions{$1.getName()}, $1.getType(),
-            $1.getDefaultValue())), TypedHash::forName("FsEvents::FsEventInfo").getMembers();
+            $1.getDefaultValue())), TypedHash::forName("::Qore::FsEvents::FsEventInfo").getMembers();
     }
 }
 }
