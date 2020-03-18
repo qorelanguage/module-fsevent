@@ -23,10 +23,10 @@
 */
 
 # make sure we have the required qore version
-%requires qore >= 0.8.10
+%requires qore >= 0.9.4
 
 module FsEventPoller {
-    version = "0.1.0";
+    version = "0.2.0";
     desc = "fsevent-based Filesystem polling solution";
     author = "Petr Vanek <petr@yarpen.cz>";
     url = "http://qore.org";
@@ -46,30 +46,52 @@ module FsEventPoller {
 
     Available classes:
      - FsEventPoller::AbstractFsEventPoller providing ad-hoc events whenever file is changed
-     - FsEventPoller::AbstractDelayedFsEventPoller providing delayed events of file changes to implement stuff like "give me the file change if the last modification time is not changed for 10 minutes"
+     - FsEventPoller::AbstractDelayedFsEventPoller providing delayed events of file changes to implement an event
+       source with a configurable delay based on files' last modification times to provide file events for non-atomic
+       file creation
 
-    @section file_poller_constructor_hash Constructor Option Hash
+    @section file_poller_constructor_hash Constructor Option Hashes
 
-    This is a list with optional settings for all AbstractFsEventPoller based classes
+    Event options are provided to the above classes with the following option hashes:
+    - @ref FsEventPoller::AbstractFsEventPollerOptionInfo "AbstractFsEventPollerOptionInfo" for the
+      @ref FsEventPoller::AbstractFsEventPoller "AbstractFsEventPoller" class
+    - @ref FsEventPoller::FsDelayedEventPollerOptionInfo "FsDelayedEventPollerOptionInfo" for the
+      @ref FsEventPoller::AbstractDelayedFsEventPoller "AbstractDelayedFsEventPoller" class
 
-    |!Option|!Type|!Mandatory|!Description
-    |\c mask|\c string|N|A file name glob/shell mask @ref file_poller_masks
-    |\c regex_mask|\c string|N|A regex file name mask @ref file_poller_masks
-    |\c reopts|\c string|N|A regex options for \c regex_mask @ref file_poller_masks
-    |\c actions|\c list|N|List of actions to be monitored. By default it's \c ADD, \c MODIFIED @ref fsevent_constants
-    |\c recursive|\c bool|N|Flag if should be monitored only current directory (\c False) or all subdirectories (\c True). \c False is default
-    |\c disable_initial_run|\c bool|N|Flag if all matching files should be scanned in constructor to be reported with \c MODIFIED event
-    |\c log_info|\c *code|N|An optional code/function for logging
-    |\c log_detail|\c *code|N|An optional code/function for logging
-    |\c log_debug|\c *code|N|An optional code/function for logging
+    @section file_poller_example Example
+
+    @code{.py}
+%new-style
+%require-types
+%strict-args
+%enable-all-warnings
+
+%requires FsEventPoller
+
+class MyFileEventSource inherits AbstractFsEventPoller {
+    constructor(string root, *hash<AbstractFsEventPollerOptionInfo> opts) : AbstractFsEventPoller(root, opts) {
+    }
+
+    fileEvent(hash<FsEventInfo> event) {
+        printf("event: %y\n", event);
+    }
+}
+
+MyFileEventSource events("/");
+Counter stop(1);
+set_signal_handler(SIGINT, sub () { print("stopping\n"); stop.dec(); });
+stop.waitForZero();
+    @endcode
 
     @section file_poller_masks File Name Masks and Matching
 
-    Any AbstractFsEventPoller can be configured to match file names by:
-     - Qore regex based mask. Qore regex options can be provided in \c reopts option hash key.
-     - file system standard mask (glob, shell, MS Windows cmd.exe)
+    Any @ref FsEventPoller::AbstractFsEventPoller "AbstractFsEventPoller" can be configured to match file names by:
+     - A %Qore regex-based mask (ex: \c "inventory_[A-J].*\.csv"); %Qore regex options can be provided in the
+       \c reopts option key
+     - A glob-style mask (ex: \c "*.csv")
 
-    User can specify one style of mask in the constructor. An exception "\c FILEPOLLER-ERROR - regex_mask and mask options cannot be used together" is raised whenewer both masks are defined.
+    User can specify one style of mask in the constructor. A \c FILEPOLLER-ERROR exception is raised whenever both
+    masks are defined.
 
     Default value for matching is to take all file names.
 
@@ -84,7 +106,7 @@ module FsEventPoller {
 #! main module namespace
 public namespace FsEventPoller {
 #! this implementation version
-public const version     = "0.1.0";
+public const version = "0.2.0";
 
 #! AbstractDelayedFsEventPoller option info hash
 /**
@@ -109,21 +131,34 @@ public hashdecl AbstractFsEventPollerOptionInfo {
     *int reopts;
 
     #! supported actions
+    /** The default value is @ref Qore::FsEvents::ADD "ADD" and @ref Qore::FsEvents::MODIFIED "MODIFIED"
+
+        @see fsevent_constants for allowed values in the list
+    */
     list<int> actions = (
         FsEvents::ADD,
         FsEvents::MODIFIED,
     );
 
     #! add the path recursively?
+    /** Default @ref False
+    */
     bool recursive = False;
 
     #! disable the initial run?
+    /** Default @ref False
+    */
     bool disable_initial_run = False;
 }
 
+#! List of keys in the AbstractFsEventPollerOptionInfo hash
 const EventPollerKeys = map $1.getName(), TypedHash::forName("AbstractFsEventPollerOptionInfo").getMembers();
 
 #! Ad-hoc file notification handler
+/** This class is suitable for atomic file creation; where files are created with their full contents already in place.
+    In case files are created and then written to in the final location, use @ref AbstractDelayedFsEventPoller instead
+    with a suitable delay.
+*/
 public class AbstractFsEventPoller inherits FsEvents::AbstractFsWatcher {
     private {
         # defauilt regexp mask
@@ -145,7 +180,7 @@ public class AbstractFsEventPoller inherits FsEvents::AbstractFsWatcher {
 
     #! Construct a file poller
     /** @param path a string with full path to the directory to be monitored
-        @param options a hash with features settings @ref file_poller_constructor_hash
+        @param options a hash with options; see @ref AbstractFsEventPollerOptionInfo for details about this parameter
      */
     constructor(string path, hash<AbstractFsEventPollerOptionInfo> options = <AbstractFsEventPollerOptionInfo>{}) {
         if (exists options.log_info)
@@ -260,7 +295,7 @@ public class AbstractFsEventPoller inherits FsEvents::AbstractFsWatcher {
 
 } # class AbstractFsEventPoller
 
-#! AbstractDelayedFsEventPoller option info hash
+#! Option info hash for the AbstractDelayedFsEventPoller class
 /**
 */
 public hashdecl FsDelayedEventPollerOptionInfo {
@@ -283,28 +318,32 @@ public hashdecl FsDelayedEventPollerOptionInfo {
     *int reopts;
 
     #! supported actions
+    /** The default value is @ref Qore::FsEvents::ADD "ADD" and @ref Qore::FsEvents::MODIFIED "MODIFIED"
+
+        @see fsevent_constants for allowed values in the list
+    */
     list<int> actions = (
         FsEvents::ADD,
         FsEvents::MODIFIED,
     );
 
     #! add the path recursively?
+    /** Default @ref False
+    */
     bool recursive = False;
 
     #! disable the initial run?
+    /** Default @ref False
+    */
     bool disable_initial_run = False;
 
-    #! Delay time in seconds. Default value is 600 = 10 mins
+    #! Delay time in seconds
+    /** Default \c 600 (10 minutes); 0 = no delay
+    */
     int minage = 600;
 
-    #! internal sleep interval between the queue check. Default value is 30 = 30s
-    int sleep_time = 30;
-
-    #! Custom Qore::background like function. This option is mandatory if \c PO_NO_THREAD_CONTROL is defined
+    #! Custom <tt>background</tt>-like function. This option is mandatory if \c PO_NO_THREAD_CONTROL is defined
     *code start_thread;
-
-    #! Custom Qore::sleep() like function. This option is mandatory if \c PO_NO_THREAD_CONTROL is defined
-    *code sleep;
 }
 
 #! Delayed file notification handler
@@ -329,59 +368,53 @@ public hashdecl FsDelayedEventPollerOptionInfo {
      */
 public class AbstractDelayedFsEventPoller inherits AbstractFsEventPoller {
     private {
+        #! cache of events keyed by file path
+        /* only updated in m_mutex
+        */
         hash<string, hash<FsEventInfo>> m_cache();
+
+        #! cache of ages: file path -> last modified date
+        /* only updated in m_mutex
+        */
+        hash<string, date> age_map;
+
+        #! the minimum age for events in seconds
         int m_minage = 600;
 
-        int m_sleepSecs = 30;
-        *code m_sleep;
-
         Mutex m_mutex();
+        Condition cond();
+        bool m_run = False;
+
         Counter m_counter();
 
-        bool m_run = False;
         int m_tid = -1;
         *code m_startThread;
     }
 
     #! Construct a file poller
     /** @param path a string with full path to the directory to be monitored
-        @param options a hash with features settings @ref file_poller_constructor_hash and @ref file_poller_delayed_constructor_hash
-
-        @subsection file_poller_delayed_constructor_hash Delayed Constructor Option Hash
-
-        |!Option|!Type|!Mandatory|!Description
-        |\c minage|\c int|N|Delay time in seconds. Default value is 600 = 10 mins
-        |\c sleep_time|\c int|N|internal sleep interval between the queue check. Default value is 30 = 30s
-        |\c start_thread|\c *code|Y or N|Custom Qore::background like function. This option is mandatory if there is \c PO_NO_THREAD_CONTROL defined
-        |\c sleep|\c *code|Y or N|Custom Qore::sleep() like function. This option is mandatory if there is \c PO_NO_THREAD_CONTROL defined
+        @param options a hash with features settings; see @ref FsDelayedEventPollerOptionInfo for details about this
+        parameter
      */
     constructor(string path, *hash<FsDelayedEventPollerOptionInfo> options)
         : AbstractFsEventPoller(path, cast<hash<AbstractFsEventPollerOptionInfo>>(options{EventPollerKeys})) {
         if (exists options.minage)
             m_minage = int(options.minage);
-        if (m_minage < 1)
+        if (m_minage < 0)
             throw "FILEPOLLER-ERROR", sprintf("min_age cannot be < 1 (val: %d)", m_minage);
-
-        if (exists options.sleep_time && options.sleep_time < 1)
-            throw "FILEPOLLER-ERROR", sprintf("sleep_time cannot be <= 0 (val: %d)", options.sleep_time);
-
-        if (exists options.sleep_time)
-            m_sleepSecs = int(options.sleep_time);
 
 %ifdef PO_NO_THREAD_CONTROL
         if (!exists options.start_thread)
             throw "FILEPOLLER-ERROR", "Mandatory option start_thread is not defined";
-
-        if (!exists options.sleep)
-            throw "FILEPOLLER-ERROR", "Mandatory option sleep is not defined";
 %endif
 
         if (exists options.start_thread)
             m_startThread = options.start_thread;
+    }
 
-        if (exists options.sleep)
-            m_sleep = options.sleep;
-
+    #! Stops the event thread if it's running
+    destructor() {
+        stop();
     }
 
     event(hash<FsEventInfo> event) {
@@ -390,8 +423,12 @@ public class AbstractDelayedFsEventPoller inherits AbstractFsEventPoller {
 
         string fullpath = event.dir + DirSep + event.name;
         logDebug("File event queued: %y", event);
+
         AutoLock al(m_mutex);
+        # add the file to the cache
         m_cache{fullpath} = event;
+        # signal background thread to process the new event
+        cond.signal();
     }
 
     #! starts polling in the background; returns the thread ID of the polling thread
@@ -423,8 +460,11 @@ public class AbstractDelayedFsEventPoller inherits AbstractFsEventPoller {
         @throw THREAD-ERROR this exception is thrown if this method is called from the event thread since it would result in a deadlock
     */
     stop() {
-        AutoLock al(m_mutex);
-        m_run = False;
+        {
+            AutoLock al(m_mutex);
+            m_run = False;
+            cond.signal();
+        }
         m_counter.waitForZero();
     }
 
@@ -433,44 +473,73 @@ public class AbstractDelayedFsEventPoller inherits AbstractFsEventPoller {
             m_counter.dec();
         }
 
-        while (m_run) {
-            date dtnow = now();
+        # the next wakeup time
+        date wakeup;
 
-            HashIterator it(m_cache);
-            while (it.next()) {
-                *hash<StatInfo> st = hstat(it.getKey());
-                if ( st && (dtnow - st.mtime).durationSeconds() < m_minage ) {
-                    logDebug("file %y is not old enough (minage: %d, current age: %d)", it.getKey(), m_minage, (dtnow - st.mtime).durationSeconds());
+        # wait for the next event
+        while (m_run) {
+            m_mutex.lock();
+            on_exit m_mutex.unlock();
+
+            #logDebug("wakeup: %y cache size: %y", wakeup, m_cache.size());
+
+            if (wakeup) {
+                int delta_ms = (wakeup - now_us()).durationMilliseconds();
+                if (delta_ms > 0) {
+                    cond.wait(m_mutex, delta_ms);
+                }
+            } else {
+                cond.wait(m_mutex);
+            }
+
+            if (!m_run) {
+                break;
+            }
+
+            # process events; calculate next wakeup time
+            remove wakeup;
+            date dtnow = now_us();
+
+            foreach hash<auto> i in (m_cache.pairIterator()) {
+                *hash<StatInfo> st = hstat(i.key);
+                # if the file disappears, remove the event
+                if (!st) {
+                    logInfo("%y event %y has disappeared from the filesystem; removing the event from the cache",
+                        i.key, i.value);
+
+                    removePathIntern(i.key);
                     continue;
                 }
-
-                # process the file
-                {
-                    AutoLock al(m_mutex);
-                    hash<FsEventInfo> vals = it.getValue();
-                    logDebug("delayed event: %s -> %n", it.getKey(), vals);
-                    fileEvent(vals);
-                    m_cache -= it.getKey();
+                if (m_minage) {
+                    int age = (dtnow - st.mtime).durationSeconds();
+                    if (age < m_minage) {
+                        # note: date + integer means date + seconds(integer)
+                        date new_wakeup = age_map{i.key} = st.mtime + m_minage;
+                        logDebug("file %y too young: minage: %d, current age: %d, new wakeup: %y", i.key, m_minage, age, new_wakeup);
+                        if (!wakeup || new_wakeup < wakeup) {
+                            wakeup = new_wakeup;
+                        }
+                        continue;
+                    }
                 }
-            }
 
-            if (m_run) {
-                sleepImpl(m_sleepSecs);
-            }
+                # remove the event from the cache
+                removePathIntern(i.key);
 
+                # emit the file event with the lock unlocked
+                logDebug("event: %s (mtime %y) -> %y", i.key, st.mtime, i.value);
+                m_mutex.unlock();
+                on_exit m_mutex.lock();
+
+                fileEvent(i.value);
+            }
         }
     }
 
-    #! sleeps for the specificed number of seconds
-    private sleepImpl(softint secs) {
-%ifdef PO_NO_PROCESS_CONTROL
-        if (!m_sleep)
-            throw "SLEEP-FUNCTION-MISSING", "Unspecified sleep function";
-
-        call_function(m_sleep, m_sleepSecs);
-%else
-        m_sleep ? call_function(m_sleep, m_sleepSecs) : Qore::sleep(m_sleepSecs);
-%endif
+    #! removes a path from internal caches; must be called with the lock held
+    private:internal removePathIntern(string path) {
+        m_cache -= path;
+        age_map -= path;
     }
 } # class AbstractFsEventPoller
 } # namespace FsEventPoller
