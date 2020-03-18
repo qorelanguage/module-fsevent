@@ -273,19 +273,19 @@ public class AbstractFsEventPoller inherits FsEvents::AbstractFsWatcher {
     private initialRun(string path) {
         Dir d();
         if (!d.chdir(path))
-            throw "FILEPOLLER-ERROR", sprintf("Directory %s does not exist", path);
+            throw "FILEPOLLER-ERROR", sprintf("Directory %y does not exist", path);
 
-        logDebug("initialRun() called for path: %s", path);
+        logDebug("initialRun() called for path: %y, regex: %y", path, m_regexMask);
         ListIterator it(d.list(m_regexMask));
         while (it.next()) {
             event(<FsEventInfo>{
                 "id": 0,
                 "dir": path,
                 "name": it.getValue(),
-                "action": FsEvents::MODIFIED
+                "action": FsEvents::ADD,
             });
         }
-        logDebug("initialRun() finished for path: %s", path);
+        logDebug("initialRun() finished for path: %y", path);
     }
 
     #! Abstract method called whenever soem filesystem event occurs.
@@ -387,6 +387,9 @@ public class AbstractDelayedFsEventPoller inherits AbstractFsEventPoller {
 
         Counter m_counter();
 
+        #! Counter that signals when the polling thread is running
+        Counter m_start_counter(1);
+
         int m_tid = -1;
         *code m_startThread;
     }
@@ -414,7 +417,9 @@ public class AbstractDelayedFsEventPoller inherits AbstractFsEventPoller {
 
     #! Stops the event thread if it's running
     destructor() {
-        stop();
+        if (m_run) {
+            stop();
+        }
     }
 
     event(hash<FsEventInfo> event) {
@@ -442,16 +447,13 @@ public class AbstractDelayedFsEventPoller inherits AbstractFsEventPoller {
                 return m_tid;
 
             m_run = True;
-            m_counter.inc();
         }
 
-%ifdef PO_NO_THREAD_CONTROL
-        m_tid = call_function(m_startThread, \runBackground());
-        m_counter.waitForZero();
+        m_counter.inc();
+        on_error m_counter.dec();
+        m_tid = startIntern();
+        m_start_counter.waitForZero();
         return m_tid;
-%else
-        return m_startThread ? call_function(m_startThread, \runBackground()) : background runBackground();
-%endif
     }
 
     #! stops the polling operation, returns when the polling operation has been stopped
@@ -468,10 +470,21 @@ public class AbstractDelayedFsEventPoller inherits AbstractFsEventPoller {
         m_counter.waitForZero();
     }
 
+    #! Starts the background thread and returns the TID
+    private int startIntern() {
+%ifdef PO_NO_THREAD_CONTROL
+        return call_function(m_startThread, \runBackground());
+%else
+        return m_startThread ? call_function(m_startThread, \runBackground()) : background runBackground();
+%endif
+    }
+
+    #! Processes file events in the background
     private runBackground() {
         on_exit {
             m_counter.dec();
         }
+        m_start_counter.dec();
 
         # the next wakeup time
         date wakeup;
