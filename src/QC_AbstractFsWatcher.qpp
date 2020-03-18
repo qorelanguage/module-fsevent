@@ -12,7 +12,7 @@ DLLLOCAL extern QoreClass* QC_ABSTRACTFSWATCHER;
 
 DLLLOCAL extern const TypedHashDecl* hashdeclFsEventInfo;
 
-// handle external (oracle) threads for qore/aq
+// handle external threads
 class CallbackThreadManager {
 public:
     DLLLOCAL ~CallbackThreadManager() {
@@ -73,10 +73,10 @@ public:
     DLLLOCAL void handleFileAction(WatchID watchid, const std::string& dir, const std::string& filename, Action action, std::string oldFilename = "");
 
     DLLLOCAL void stop() {
-       //printd(5, "FsWatcherPriv::~FsWatcherPriv() this: %p\n", this);
-       delete m_fw;
-       m_fw = nullptr;
-       callbackThreadManager.dec();
+        //printd(5, "FsWatcherPriv::~FsWatcherPriv() this: %p\n", this);
+        delete m_fw;
+        m_fw = nullptr;
+        callbackThreadManager.dec();
     }
 
 private:

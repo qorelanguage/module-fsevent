@@ -41,15 +41,7 @@ int sub custom_start_thread(any f) {
     return background f();
 }
 
-# custom sleep test handler
-sub custom_sleep(int s) {
-    logger("LOG INFO", "custom_sleep used");
-    Qore::sleep(s);
-}
-
-
-class TestFsEventPoller inherits public FsEventPoller::AbstractFsEventPoller
-{
+class TestFsEventPoller inherits public FsEventPoller::AbstractFsEventPoller {
     private {
         Main m_ut;
     }
@@ -75,11 +67,9 @@ class TestFsEventPoller inherits public FsEventPoller::AbstractFsEventPoller
             delete m_ut.files{event.name};
         }
     }
-
 }
 
-class TestDelayedFsEventPoller inherits public FsEventPoller::AbstractDelayedFsEventPoller
-{
+class TestDelayedFsEventPoller inherits public FsEventPoller::AbstractDelayedFsEventPoller {
     private {
         Main m_ut;
     }
@@ -252,7 +242,6 @@ public class Main inherits QUnit::Test {
     singleDelayedInstance() {
         hash<FsDelayedEventPollerOptionInfo> opts(DEFAULT_OPTS + {
             "minage" : 1,
-            "sleep_time" : 1,
         });
         TestDelayedFsEventPoller w(self, m_dir.path(), opts);
         w.start();
@@ -269,9 +258,7 @@ public class Main inherits QUnit::Test {
     customFunctions() {
         hash<FsDelayedEventPollerOptionInfo> opts(DEFAULT_OPTS + {
             "minage": 1,
-            "sleep_time": 1,
             "start_thread": \custom_start_thread(),
-            "sleep": \custom_sleep(),
         });
         TestDelayedFsEventPoller w(self, m_dir.path(), opts);
         w.start();
@@ -294,7 +281,6 @@ public class Main inherits QUnit::Test {
     multiDelayedInstance() {
         hash<FsDelayedEventPollerOptionInfo> opts(DEFAULT_OPTS + {
             "minage" : 1,
-            "sleep_time" : 1,
         });
         TestDelayedFsEventPoller w(self, m_dir.path(), opts);
         w.start();

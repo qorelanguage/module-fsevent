@@ -1,28 +1,34 @@
 #include <qore/Qore.h>
 #include <efsw/efsw.hpp>
 
-/** @defgroup fsevent_constants Filesystem Events Constants
+/** @defgroup fsevent_constants Filesystem Event Constants
 
     Constants used for \c action value in the @ref Qore::FsEvents::AbstractFsWatcher::event() "AbstractFsWatcher::event()" method
+
+    @see fsevent_other_constants
  */
 //@{
 namespace Qore::FsEvents;
 
 //! File added
-const ADD = 1;
-//efsw::Actions::Add;
+const ADD = qore(efsw::Actions::Add);
 
 //! File deleted
-const DELETE = 2;
-//efsw::Actions::Delete;
+const DELETE = qore(efsw::Actions::Delete);
 
 //! File modified
-const MODIFIED = 3;
-//efsw::Actions::Modified;
+const MODIFIED = qore(efsw::Actions::Modified);
 
 //! File moved
-const MOVED = 4;
-//efsw::Actions::Moved;
+const MOVED = qore(efsw::Actions::Moved);
+//@}
+
+/** @defgroup fsevent_other_constants Filesystem Event Other Supporting Constants
+
+    Constants providing mappings and descriptions for @ref fsevent_constants
+ */
+//@{
+namespace Qore::FsEvents;
 
 //! String representation of ADD
 const ST_ADD = "ADD";
