@@ -116,7 +116,7 @@ set(QORE_DOX_TMPL_SRC
   docs/mainpage.dox.tmpl
 )
 
-add_library(${module_name} SHARED ${CPP_SRC} ${QPP_SOURCES} ${EFSW_SRC})
+add_library(${module_name} MODULE ${CPP_SRC} ${QPP_SOURCES} ${EFSW_SRC})
 
 if (WIN32 AND MINGW AND MSYS)
     target_compile_definitions(${module_name} PUBLIC BUILDING_DLL)
