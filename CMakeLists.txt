@@ -122,6 +122,10 @@ if (WIN32 AND MINGW AND MSYS)
     target_compile_definitions(${module_name} PUBLIC BUILDING_DLL)
 endif (WIN32 AND MINGW AND MSYS)
 
+if (DEFINED ENV{DOXYGEN_EXECUTABLE})
+    set(DOXYGEN_EXECUTABLE $ENV{DOXYGEN_EXECUTABLE})
+endif()
+
 set(MODULE_DOX_INPUT "${CMAKE_BINARY_DIR}/mainpage.dox" ${_dox_src})
 qore_external_binary_module(${module_name} ${PROJECT_VERSION})
 
