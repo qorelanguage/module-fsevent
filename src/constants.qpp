@@ -7,7 +7,7 @@
 
     @see fsevent_other_constants
  */
-//@{
+///@{
 namespace Qore::FsEvents;
 
 //! File added
@@ -21,13 +21,13 @@ const MODIFIED = qore(efsw::Actions::Modified);
 
 //! File moved
 const MOVED = qore(efsw::Actions::Moved);
-//@}
+///@}
 
 /** @defgroup fsevent_other_constants Filesystem Event Other Supporting Constants
 
     Constants providing mappings and descriptions for @ref fsevent_constants
  */
-//@{
+///@{
 namespace Qore::FsEvents;
 
 //! String representation of ADD
@@ -57,4 +57,4 @@ const ACTION_RMAP = (
     "MODIFIED": 3,
     "MOVED": 4,
 );
-//@}
+///@}
