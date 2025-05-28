@@ -124,7 +124,7 @@ void FsWatcherPriv::removeWatch(const char * path, ExceptionSink *xsink) {
 }
 
 QoreValue FsWatcherPriv::directories(ExceptionSink* xsink) {
-    const std::list<std::string>& dirs = m_fw->directories();
+    const std::vector<std::string>& dirs = m_fw->directories();
     if (!dirs.size()) {
         return QoreValue();
     }

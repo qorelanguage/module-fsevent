@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.0.0)
 
-project(qore-fsevent-module VERSION 1.0.0)
+project(qore-fsevent-module VERSION 1.1.0)
 
 include(CheckCXXCompilerFlag)
 include(CheckCXXSourceCompiles)
@@ -63,12 +63,11 @@ set(EFSW_SRC
     src/efsw/FileWatcherGeneric.cpp
     src/efsw/FileWatcherImpl.cpp
     src/efsw/Log.cpp
-    src/efsw/Mutex.cpp
+    src/efsw/Mutex.hpp
     src/efsw/sophist.h
     src/efsw/String.cpp
     src/efsw/System.cpp
-    src/efsw/Thread.cpp
-#    src/efsw/Utf.inl
+    src/efsw/Thread.hpp
     src/efsw/Watcher.cpp
     src/efsw/WatcherGeneric.cpp
 )
@@ -92,17 +91,13 @@ endif()
 if (${CMAKE_SYSTEM_NAME} MATCHES "Windows")
     set(EFSW_SRC ${EFSW_SRC}
         src/efsw/platform/win/FileSystemImpl.cpp
-        src/efsw/platform/win/MutexImpl.cpp
         src/efsw/platform/win/SystemImpl.cpp
-        src/efsw/platform/win/ThreadImpl.cpp
     )
 else ()
     # posix systems
     set(EFSW_SRC ${EFSW_SRC}
         src/efsw/platform/posix/FileSystemImpl.cpp
-        src/efsw/platform/posix/MutexImpl.cpp
         src/efsw/platform/posix/SystemImpl.cpp
-        src/efsw/platform/posix/ThreadImpl.cpp
     )
 endif ()
 

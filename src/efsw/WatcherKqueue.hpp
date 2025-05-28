@@ -5,14 +5,13 @@
 
 #if EFSW_PLATFORM == EFSW_PLATFORM_KQUEUE || EFSW_PLATFORM == EFSW_PLATFORM_FSEVENTS
 
-#include <map>
-#include <vector>
-#include <sys/types.h>
-#include <sys/event.h>
 #include <efsw/DirectorySnapshot.hpp>
+#include <map>
+#include <sys/event.h>
+#include <sys/types.h>
+#include <vector>
 
-namespace efsw
-{
+namespace efsw {
 
 class FileWatcherKqueue;
 class WatcherKqueue;
@@ -22,77 +21,76 @@ typedef struct kevent KEvent;
 /// type for a map from WatchID to WatcherKqueue pointer
 typedef std::map<WatchID, Watcher*> WatchMap;
 
-class WatcherKqueue : public Watcher
-{
-    friend class WatcherHelper;
+class WatcherKqueue : public Watcher {
+  public:
+	WatcherKqueue( WatchID watchid, const std::string& dirname, FileWatchListener* listener,
+				   bool recursive, FileWatcherKqueue* watcher, WatcherKqueue* parent = NULL );
 
-	public:
-		WatcherKqueue( WatchID watchid, const std::string& dirname, FileWatchListener* listener, bool recursive, FileWatcherKqueue * watcher, WatcherKqueue * parent = NULL );
+	virtual ~WatcherKqueue();
 
-		virtual ~WatcherKqueue();
+	void addFile( const std::string& name, bool emitEvents = true );
 
-		void addFile(  const std::string& name, bool emitEvents = true );
+	void removeFile( const std::string& name, bool emitEvents = true );
 
-		void removeFile( const std::string& name, bool emitEvents = true );
+	// called when the directory is actually changed
+	// means a file has been added or removed
+	// rescans the watched directory adding/removing files and sending notices
+	void rescan();
 
-		// called when the directory is actually changed
-		// means a file has been added or removed
-		// rescans the watched directory adding/removing files and sending notices
-		void rescan();
+	void handleAction( const std::string& filename, efsw::Action action,
+					   const std::string& oldFilename = "" );
 
-		void handleAction( const std::string& filename, efsw::Action action, const std::string& oldFilename = "" );
+	void handleFolderAction( std::string filename, efsw::Action action,
+							 const std::string& oldFilename = "" );
 
-		void handleFolderAction( std::string filename, efsw::Action action, const std::string& oldFilename = "" );
+	void addAll();
 
-		void addAll();
+	void removeAll();
 
-		void removeAll();
+	WatchID watchingDirectory( std::string dir );
 
-		WatchID watchingDirectory( std::string dir );
+	void watch() override;
 
-		void watch();
+	WatchID addWatch( const std::string& directory, FileWatchListener* watcher, bool recursive,
+					  WatcherKqueue* parent );
 
-		WatchID addWatch(const std::string& directory, FileWatchListener* watcher, bool recursive, WatcherKqueue * parent);
+	void removeWatch( WatchID watchid );
 
-		void removeWatch (WatchID watchid );
+	bool initOK();
 
-		bool initOK();
+	int lastErrno();
 
-		int lastErrno();
-	protected:
-        // for atomic access to mWatches
-		Mutex               mWatchesLock;
+  protected:
+	WatchMap mWatches;
+	int mLastWatchID;
 
-		WatchMap			mWatches;
-		int					mLastWatchID;
+	// index 0 is always the directory
+	std::vector<KEvent> mChangeList;
+	size_t mChangeListCount;
+	DirectorySnapshot mDirSnap;
 
-		// index 0 is always the directory
-		std::vector<KEvent>	mChangeList;
-		size_t				mChangeListCount;
-		DirectorySnapshot	mDirSnap;
+	/// The descriptor for the kqueue
+	int mKqueue;
 
-		/// The descriptor for the kqueue
-		int					mKqueue;
+	FileWatcherKqueue* mWatcher;
 
-		FileWatcherKqueue *	mWatcher;
+	WatcherKqueue* mParent;
 
-		WatcherKqueue *		mParent;
+	bool mInitOK;
+	int mErrno;
 
-		bool				mInitOK;
-		int					mErrno;
+	bool pathInWatches( const std::string& path );
 
-		bool pathInWatches( const std::string& path );
+	bool pathInParent( const std::string& path );
 
-		bool pathInParent( const std::string& path );
+	Watcher* findWatcher( const std::string path );
 
-		Watcher * findWatcher( const std::string path );
+	void moveDirectory( std::string oldPath, std::string newPath, bool emitEvents = true );
 
-		void moveDirectory( std::string oldPath, std::string newPath, bool emitEvents = true );
-
-		void sendDirChanged();
+	void sendDirChanged();
 };
 
-}
+} // namespace efsw
 
 #endif
 
