@@ -43,6 +43,8 @@ const ST_MODIFIED = "MODIFIED";
 const ST_MOVED = "MOVED";
 
 //! A helper map of int - string representation of the file action
+/** @note Values match efsw::Actions enum: Add=1, Delete=2, Modified=3, Moved=4
+*/
 const ACTION_MAP = (
     1: "ADD",
     2: "DELETE",
@@ -51,10 +53,60 @@ const ACTION_MAP = (
 );
 
 //! A helper map of string - int representation of the file action
+/** @note Values match efsw::Actions enum: Add=1, Delete=2, Modified=3, Moved=4
+*/
 const ACTION_RMAP = (
     "ADD": 1,
     "DELETE": 2,
     "MODIFIED": 3,
     "MOVED": 4,
+);
+///@}
+
+/** @defgroup fsevent_error_constants Filesystem Event Error Constants
+
+    Error codes returned by @ref Qore::FsEvents::AbstractFsWatcher::getLastErrorCode() "AbstractFsWatcher::getLastErrorCode()"
+
+    @see fsevent_constants
+ */
+///@{
+namespace Qore::FsEvents;
+
+//! No error
+const E_NOERROR = qore(efsw::Errors::NoError);
+
+//! Directory not found
+const E_FILENOTFOUND = qore(efsw::Errors::FileNotFound);
+
+//! Directory already being watched
+const E_FILEREPEATED = qore(efsw::Errors::FileRepeated);
+
+//! Path is outside allowed scope (symlink issue)
+const E_FILEOUTOFSCOPE = qore(efsw::Errors::FileOutOfScope);
+
+//! Permission denied - directory not readable
+const E_FILENOTREADABLE = qore(efsw::Errors::FileNotReadable);
+
+//! Directory is on a remote filesystem
+const E_FILEREMOTE = qore(efsw::Errors::FileRemote);
+
+//! Filesystem watcher failed to initialize
+const E_WATCHERFAILED = qore(efsw::Errors::WatcherFailed);
+
+//! Unspecified error
+const E_UNSPECIFIED = qore(efsw::Errors::Unspecified);
+
+//! A helper map of error code to string representation
+/** @note Values match efsw::Errors enum
+*/
+const ERROR_MAP = (
+    0: "NoError",
+    -1: "FileNotFound",
+    -2: "FileRepeated",
+    -3: "FileOutOfScope",
+    -4: "FileNotReadable",
+    -5: "FileRemote",
+    -6: "WatcherFailed",
+    -7: "Unspecified",
 );
 ///@}

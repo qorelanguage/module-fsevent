@@ -50,7 +50,6 @@ public:
     }
 
 protected:
-    pthread_t ora_thread;
     QoreThreadLock l;
     unsigned count = 0;
     int tid = 0;
@@ -74,15 +73,79 @@ public:
 
     DLLLOCAL void stop() {
         //printd(5, "FsWatcherPriv::~FsWatcherPriv() this: %p\n", this);
+        // Signal that we're stopping
+        {
+            AutoLocker al(callback_lock);
+            stopping = true;
+        }
+        // Delete the watcher which stops the background thread
         delete m_fw;
         m_fw = nullptr;
+        // Wait for any in-flight callbacks to complete
+        {
+            AutoLocker al(callback_lock);
+            while (callback_count > 0) {
+                callback_cond.wait(callback_lock);
+            }
+        }
         callbackThreadManager.dec();
+    }
+
+    // Symlink support
+    DLLLOCAL void setFollowSymlinks(bool follow) {
+        m_fw->followSymlinks(follow);
+    }
+
+    DLLLOCAL bool getFollowSymlinks() const {
+        return m_fw->followSymlinks();
+    }
+
+    DLLLOCAL void setAllowOutOfScopeLinks(bool allow) {
+        m_fw->allowOutOfScopeLinks(allow);
+    }
+
+    DLLLOCAL bool getAllowOutOfScopeLinks() const {
+        return m_fw->allowOutOfScopeLinks();
+    }
+
+    // Query methods
+    DLLLOCAL int getWatchCount() const {
+        return m_fw->directories().size();
+    }
+
+    DLLLOCAL bool isWatching(const char* path) const {
+        const std::vector<std::string>& dirs = m_fw->directories();
+        std::string pathStr(path);
+        for (const auto& dir : dirs) {
+            if (dir == pathStr || dir == pathStr + "/") {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    DLLLOCAL const char* getBackendType() const {
+#if defined(__linux__)
+        return "inotify";
+#elif defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
+        return "kqueue";
+#elif defined(_WIN32)
+        return "win32";
+#else
+        return "generic";
+#endif
     }
 
 private:
     FileWatcher* m_fw;
     const QoreMethod* event;
     QoreObject* m_obj;
+
+    // Thread safety for callbacks during destruction
+    mutable QoreThreadLock callback_lock;
+    QoreCondition callback_cond;
+    unsigned callback_count = 0;
+    bool stopping = false;
 };
 
 FsWatcherPriv::FsWatcherPriv(QoreObject *obj) {
@@ -144,6 +207,27 @@ QoreValue FsWatcherPriv::directories(ExceptionSink* xsink) {
 /// @param action Action that was performed
 /// @param oldFilename The name of the file or directory moved
 void FsWatcherPriv::handleFileAction(WatchID watchid, const std::string& dir, const std::string& filename, Action action, std::string oldFilename) {
+    // Check if we're stopping and increment callback count
+    {
+        AutoLocker al(callback_lock);
+        if (stopping) {
+            return;
+        }
+        ++callback_count;
+    }
+
+    // Ensure we decrement callback count and signal when done
+    struct CallbackGuard {
+        FsWatcherPriv* priv;
+        CallbackGuard(FsWatcherPriv* p) : priv(p) {}
+        ~CallbackGuard() {
+            AutoLocker al(priv->callback_lock);
+            if (--priv->callback_count == 0) {
+                priv->callback_cond.signal();
+            }
+        }
+    } guard(this);
+
     QoreForeignThreadHelper qfth(callbackThreadManager.getTid());
 
     ExceptionSink xsink;
@@ -188,6 +272,31 @@ hashdecl Qore::FsEvents::FsEventInfo {
 /**
     This is an abstract class. Developers have to inherit AbstractFsWatcher with method event() implemented.
 
+    @par Thread Safety
+    - The AbstractFsWatcher class is thread-safe for concurrent calls to addPath(), removePath(), and directories()
+    - The event() callback is called from a background thread managed by the filesystem watcher
+    - Multiple event() callbacks may be invoked concurrently for different watch IDs
+    - User code in event() should be thread-safe if sharing state with other threads
+
+    @par Callback Re-entrancy
+    - The event() method may be called while a previous event() call is still executing
+    - For single-threaded event processing, use synchronization in your event() implementation
+    - Consider using AbstractDelayedFsEventPoller for serialized event processing
+
+    @par Exception Handling
+    - Exceptions thrown in the event() callback are caught and discarded to prevent crashing the watcher thread
+    - Use try/catch in event() to handle and log exceptions appropriately
+    - addPath() throws FSWATCHER-ADD-ERROR if the path cannot be watched
+    - copy() throws FSWATCHER-COPY-ERROR as copying is not supported
+
+    @par Error Codes
+    Errors from addPath() may include:
+    - FileNotFound: The directory does not exist
+    - FileRepeated: The directory is already being watched
+    - FileOutOfScope: The path is outside the allowed scope (symlink issue)
+    - FileNotReadable: Permission denied
+    - Unspecified: Other platform-specific error
+
     <b>Basic Example</b>
 
     @code{.py}
@@ -204,6 +313,31 @@ MyWatcher w();
 w.addPath('/var/log/');
 while (True) {
     sleep(1);
+}
+    @endcode
+
+    <b>Thread-Safe Example</b>
+
+    @code{.py}
+%requires fsevent
+
+class ThreadSafeWatcher inherits FsEvents::AbstractFsWatcher {
+    private {
+        Mutex m();
+        list<hash<FsEventInfo>> events();
+    }
+
+    event(hash<FsEventInfo> event) {
+        AutoLock al(m);
+        events += event;
+    }
+
+    list<hash<FsEventInfo>> getEvents() {
+        AutoLock al(m);
+        list<hash<FsEventInfo>> ret = events;
+        events = ();
+        return ret;
+    }
 }
     @endcode
 */
@@ -238,12 +372,23 @@ AbstractFsWatcher::destructor() {
     @param path	a string with path to be monitored
     @param recursive False = only the top level directory is monitored; True = all sub-directories are monitored too
 
-    @returns an integer id of the monitored tree
+    @returns the object itself for method chaining (fluent API)
 
-    The returning id can be used in AbstractFsWatcher::removePath()
+    @note To get the watch ID, use getWatchIdForPath() after adding the path.
+
+    @throw FSWATCHER-ADD-ERROR if the path cannot be watched
+
+    Example:
+    @code{.py}
+    MyWatcher w();
+    w.addPath("/var/log").addPath("/tmp").setFollowSymlinks(True);
+    @endcode
+
+    @since 2.0 - Changed return type from int to AbstractFsWatcher for fluent API
  */
-int AbstractFsWatcher::addPath(string path, bool recursive = False) {
-    return priv->addWatch(path->getBuffer(), recursive, xsink);
+AbstractFsWatcher AbstractFsWatcher::addPath(string path, bool recursive = False) {
+    priv->addWatch(path->getBuffer(), recursive, xsink);
+    return self->refSelf();
 }
 
 //! Remove a directory tree from monitoring by its id.
@@ -279,3 +424,153 @@ AbstractFsWatcher::removePath(string path) {
 /** @param event the filesystem event hash
  */
 abstract AbstractFsWatcher::event(hash<FsEventInfo> event);
+
+//! Enable or disable following symbolic links.
+/**
+    @param follow True to follow symlinks, False to ignore them
+
+    @note This setting must be applied before calling addPath() to take effect for that path.
+    Windows implementations ignore this setting.
+
+    @see getFollowSymlinks()
+ */
+AbstractFsWatcher::setFollowSymlinks(bool follow) {
+    priv->setFollowSymlinks(follow);
+}
+
+//! Returns whether symbolic links are being followed.
+/**
+    @return True if symlinks are followed, False otherwise
+
+    @see setFollowSymlinks()
+ */
+bool AbstractFsWatcher::getFollowSymlinks() {
+    return priv->getFollowSymlinks();
+}
+
+//! Enable or disable following symbolic links that point outside the watched directory.
+/**
+    @param allow True to allow out-of-scope symlinks, False to ignore them
+
+    @note This setting requires followSymlinks to be enabled. Must be applied before addPath().
+    Windows implementations ignore this setting.
+
+    @see getAllowOutOfScopeLinks()
+    @see setFollowSymlinks()
+ */
+AbstractFsWatcher::setAllowOutOfScopeLinks(bool allow) {
+    priv->setAllowOutOfScopeLinks(allow);
+}
+
+//! Returns whether out-of-scope symbolic links are being followed.
+/**
+    @return True if out-of-scope symlinks are allowed, False otherwise
+
+    @see setAllowOutOfScopeLinks()
+ */
+bool AbstractFsWatcher::getAllowOutOfScopeLinks() {
+    return priv->getAllowOutOfScopeLinks();
+}
+
+//! Returns the last error code from the filesystem watcher library.
+/**
+    @return The last error code (one of @ref fsevent_error_constants), or E_NOERROR if no error
+
+    This is a process-global value. Call immediately after a failed addPath() to get the error code.
+
+    @see getLastErrorMessage()
+    @see clearLastError()
+ */
+static int AbstractFsWatcher::getLastErrorCode() {
+    return Errors::Log::getLastErrorCode();
+}
+
+//! Returns the last error message from the filesystem watcher library.
+/**
+    @return A string describing the last error, or an empty string if no error
+
+    This is a process-global value. Call immediately after a failed addPath() to get the error message.
+
+    @see getLastErrorCode()
+    @see clearLastError()
+ */
+static string AbstractFsWatcher::getLastErrorMessage() {
+    return new QoreStringNode(Errors::Log::getLastErrorLog());
+}
+
+//! Clears the last error state.
+/**
+    Resets the process-global error state to no error.
+
+    @see getLastErrorCode()
+    @see getLastErrorMessage()
+ */
+static AbstractFsWatcher::clearLastError() {
+    Errors::Log::clearLastError();
+}
+
+//! Returns the name of the backend being used for filesystem monitoring.
+/**
+    @return A string identifying the backend: "inotify" (Linux), "kqueue" (macOS/BSD),
+            "win32" (Windows), or "generic" (polling fallback)
+
+    The backend is determined at compile time based on the platform.
+ */
+string AbstractFsWatcher::getBackendType() {
+    return new QoreStringNode(priv->getBackendType());
+}
+
+//! Returns the number of directories currently being watched.
+/**
+    @return The count of watched directories
+ */
+int AbstractFsWatcher::getWatchCount() {
+    return priv->getWatchCount();
+}
+
+//! Returns whether a specific path is being watched.
+/**
+    @param path The directory path to check
+
+    @return True if the path is being watched, False otherwise
+ */
+bool AbstractFsWatcher::isWatching(string path) {
+    return priv->isWatching(path->getBuffer());
+}
+
+//! Adds a path and returns the watch ID.
+/**
+    @param path a string with path to be monitored
+    @param recursive False = only the top level directory is monitored; True = all sub-directories are monitored too
+
+    @returns an integer id of the monitored tree, or 0 on error
+
+    This method is provided for backward compatibility and when the watch ID is needed.
+    For fluent API, use addPath() instead.
+
+    @throw FSWATCHER-ADD-ERROR if the path cannot be watched
+
+    @see addPath()
+ */
+int AbstractFsWatcher::addPathWithId(string path, bool recursive = False) {
+    return priv->addWatch(path->getBuffer(), recursive, xsink);
+}
+
+//! Returns statistics about the watcher.
+/**
+    @return A hash with the following keys:
+    - \c watchCount (int): Number of directories being watched
+    - \c backend (string): The backend type ("inotify", "kqueue", "win32", or "generic")
+    - \c directories (list<string>): List of watched directories (or NOTHING if empty)
+    - \c followSymlinks (bool): Whether symlinks are being followed
+    - \c allowOutOfScopeLinks (bool): Whether out-of-scope symlinks are allowed
+ */
+hash<auto> AbstractFsWatcher::getStatistics() {
+    ReferenceHolder<QoreHashNode> rv(new QoreHashNode(autoTypeInfo), xsink);
+    rv->setKeyValue("watchCount", priv->getWatchCount(), xsink);
+    rv->setKeyValue("backend", new QoreStringNode(priv->getBackendType()), xsink);
+    rv->setKeyValue("directories", priv->directories(xsink), xsink);
+    rv->setKeyValue("followSymlinks", priv->getFollowSymlinks(), xsink);
+    rv->setKeyValue("allowOutOfScopeLinks", priv->getAllowOutOfScopeLinks(), xsink);
+    return rv.release();
+}

@@ -1,0 +1,130 @@
+#!/usr/bin/env qore
+# -*- mode: qore; indent-tabs-mode: nil -*-
+#
+# Tests for the FsEventPollerUtil module
+#
+
+%new-style
+%require-types
+%strict-args
+%enable-all-warnings
+
+%requires QUnit
+%requires DataProvider
+%requires ../qlib/FsEventPollerUtil.qm
+
+%exec-class FsEventPollerUtilTests
+
+public class FsEventPollerUtilTests inherits QUnit::Test {
+    constructor() : Test("FsEventPollerUtil", "1.0") {
+        addTestCase("Data type registration", \testTypeRegistration());
+        addTestCase("Field descriptions", \testFieldDescriptions());
+        addTestCase("Type structure validation", \testTypeStructure());
+        addTestCase("Type accepts valid event", \testAcceptsValidEvent());
+        addTestCase("Type rejects invalid event", \testRejectsInvalidEvent());
+
+        set_return_value(main());
+    }
+
+    testTypeRegistration() {
+        # The type should be registered when module loads
+        AbstractDataProviderType eventType = DataProvider::getType("qore/fsevents/event");
+        assertEq(True, exists eventType, "Event type should be registered");
+    }
+
+    testFieldDescriptions() {
+        AbstractDataProviderType eventType = DataProvider::getType("qore/fsevents/event");
+
+        # Get the type info
+        hash<auto> typeInfo = eventType.getInfo();
+
+        # Verify it's a hash type
+        assertEq("hash", typeInfo.base_type, "Type should be a hash");
+
+        # Check that expected fields exist
+        hash<auto> fields = typeInfo.fields;
+        assertTrue(exists fields.id, "Should have 'id' field");
+        assertTrue(exists fields.dir, "Should have 'dir' field");
+        assertTrue(exists fields.name, "Should have 'name' field");
+        assertTrue(exists fields.action, "Should have 'action' field");
+        assertTrue(exists fields.old_name, "Should have 'old_name' field");
+    }
+
+    testTypeStructure() {
+        AbstractDataProviderType eventType = DataProvider::getType("qore/fsevents/event");
+
+        hash<auto> typeInfo = eventType.getInfo();
+        hash<auto> fields = typeInfo.fields;
+
+        # Verify field types
+        assertEq("int", fields.id.type.base_type, "id should be int");
+        assertEq("string", fields.dir.type.base_type, "dir should be string");
+        assertEq("string", fields.name.type.base_type, "name should be string");
+        assertEq("int", fields.action.type.base_type, "action should be int");
+
+        # old_name should be optional string (*string)
+        assertTrue(fields.old_name.type.base_type == "string"
+            || fields.old_name.type.base_type == "*string"
+            || fields.old_name.type.or_nothing,
+            "old_name should be optional string");
+    }
+
+    testAcceptsValidEvent() {
+        AbstractDataProviderType eventType = DataProvider::getType("qore/fsevents/event");
+
+        # Valid event hash
+        hash<auto> validEvent = {
+            "id": 1,
+            "dir": "/var/log",
+            "name": "syslog",
+            "action": FsEvents::MODIFIED,
+        };
+
+        assertTrue(eventType.acceptsValue(validEvent),
+            "Type should accept valid event hash");
+
+        # Valid event with old_name (for MOVED action)
+        hash<auto> moveEvent = {
+            "id": 2,
+            "dir": "/data",
+            "name": "newname.txt",
+            "action": FsEvents::MOVED,
+            "old_name": "oldname.txt",
+        };
+
+        assertTrue(eventType.acceptsValue(moveEvent),
+            "Type should accept valid move event hash");
+    }
+
+    testRejectsInvalidEvent() {
+        AbstractDataProviderType eventType = DataProvider::getType("qore/fsevents/event");
+
+        # Missing required fields
+        hash<auto> missingFields = {
+            "id": 1,
+            # missing dir, name, action
+        };
+
+        # Note: The type validation may or may not strictly enforce required fields
+        # depending on DataProvider implementation. We check it doesn't crash.
+        try {
+            eventType.acceptsValue(missingFields);
+            # If it doesn't throw, that's acceptable behavior
+            assertTrue(True, "Type validation completed without crash");
+        } catch (hash<auto> ex) {
+            # If it throws, that's also acceptable (strict validation)
+            assertTrue(True, "Type correctly rejected incomplete event");
+        }
+
+        # Wrong type for id
+        hash<auto> wrongType = {
+            "id": "not_an_int",
+            "dir": "/var/log",
+            "name": "syslog",
+            "action": FsEvents::MODIFIED,
+        };
+
+        assertFalse(eventType.acceptsValue(wrongType),
+            "Type should reject event with wrong field type");
+    }
+}

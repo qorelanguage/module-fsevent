@@ -53,19 +53,8 @@ class TestFsEventPoller inherits public FsEventPoller::AbstractFsEventPoller {
 
     fileEvent(hash<FsEventInfo> event) {
         string am = ACTION_MAP{event.action};
-        string testname = event.name + ": " + am;
-
-        code c = bool sub() {return m_ut.files{event.name}{am} > 0; };
-        m_ut.testAssertion(testname, c);
-
-        m_ut.files{event.name}{am}--;
-        if (m_ut.files{event.name}{am} == 0) {
-            delete m_ut.files{event.name}{am};
-        }
-
-        if (!m_ut.files{event.name}.size()) {
-            delete m_ut.files{event.name};
-        }
+        # Thread-safe access to shared files hash
+        m_ut.handleEvent(event.name, am);
     }
 }
 
@@ -80,21 +69,9 @@ class TestDelayedFsEventPoller inherits public FsEventPoller::AbstractDelayedFsE
 
     fileEvent(hash<FsEventInfo> event) {
         string am = ACTION_MAP{event.action};
-        string testname = event.name + ": " + am;
-
-        code c = bool sub() {return m_ut.files{event.name}{am} > 0; };
-        m_ut.testAssertion(testname, c);
-
-        m_ut.files{event.name}{am}--;
-        if (m_ut.files{event.name}{am} == 0) {
-            delete m_ut.files{event.name}{am};
-        }
-
-        if (!m_ut.files{event.name}.size()) {
-            delete m_ut.files{event.name};
-        }
+        # Thread-safe access to shared files hash
+        m_ut.handleEvent(event.name, am);
     }
-
 }
 
 public class Main inherits QUnit::Test {
@@ -102,10 +79,31 @@ public class Main inherits QUnit::Test {
         Dir m_dir();
         string m_subdir = sprintf("fsevent-unittest-pid_%d", getpid());
         Counter m_c();
+        Mutex m_files_mutex();
     }
 
     public {
         hash files;
+    }
+
+    # Thread-safe method to handle an event
+    handleEvent(string name, string action) {
+        AutoLock al(m_files_mutex);
+        code c = bool sub() { return files{name}{action} > 0; };
+        testAssertion(name + ": " + action, c);
+        files{name}{action}--;
+        if (files{name}{action} == 0) {
+            delete files{name}{action};
+        }
+        if (!files{name}.size()) {
+            delete files{name};
+        }
+    }
+
+    # Thread-safe method to set file expectations
+    setExpectation(string name, string action, int count) {
+        AutoLock al(m_files_mutex);
+        files{name}{action} = count;
     }
 
     constructor() : Test("FsEventPoller.qm", "1.0") {
@@ -136,7 +134,7 @@ public class Main inherits QUnit::Test {
     }
 
     # This test is a little bit tricky. We just prepare set of expected
-    # events and these are checked in the time of real event emitation.
+    # events and these are checked in the time of real event emission.
     # These actions are removed then and we can assume that the test
     # is complete when there are no expected actions for given file name.
     private testOneFile() {
@@ -147,11 +145,12 @@ public class Main inherits QUnit::Test {
         string f1 = get_tmp_fname();
         string f2 = f1 + ".new";
 
-        files{f1}."ADD" = 1;
-        files{f1}."MODIFIED" = 2;
-        files{f2}."MOVED" = 1;
-        files{f1}."MOVED" = 1;
-        files{f1}."DELETE" = 1;
+        # Use thread-safe method to set expectations
+        setExpectation(f1, "ADD", 1);
+        setExpectation(f1, "MODIFIED", 2);
+        setExpectation(f2, "MOVED", 1);
+        setExpectation(f1, "MOVED", 1);
+        setExpectation(f1, "DELETE", 1);
 
         File f = m_dir.openFile(f1, O_CREAT | O_TRUNC | O_WRONLY, 0644);
         f.write('lorem ipsum');
@@ -209,7 +208,7 @@ public class Main inherits QUnit::Test {
     }
 
     # This test is a little bit tricky. We just prepare set of expected
-    # events and these are checked in the time of real event emitation.
+    # events and these are checked in the time of real event emission.
     # These actions are removed then and we can assume that the test
     # is complete when there are no expected actions for given file name.
     private testOneFileDelayed() {
@@ -219,9 +218,10 @@ public class Main inherits QUnit::Test {
 
         string f1 = get_tmp_fname();
 
-        files{f1}."ADD" = 1;
-        files{f1}."MODIFIED" = 1;
-        files{f1}."DELETE" = 1;
+        # Use thread-safe method to set expectations
+        setExpectation(f1, "ADD", 1);
+        setExpectation(f1, "MODIFIED", 1);
+        setExpectation(f1, "DELETE", 1);
 
         File f = m_dir.openFile(f1, O_CREAT | O_TRUNC | O_WRONLY, 0644);
         f.write('lorem ipsum\n');
@@ -232,7 +232,7 @@ public class Main inherits QUnit::Test {
         f = m_dir.openFile(f1, O_WRONLY, 0644);
         f.write('lorem ipsum\n');
         f.close();
-        files{f1}."MODIFIED" = 1;
+        setExpectation(f1, "MODIFIED", 1);
         # wait for events promotion
         sleep(2);
 

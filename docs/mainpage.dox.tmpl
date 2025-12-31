@@ -52,9 +52,112 @@
 
     @section fseventreleasenotes fsevent Module Release Notes
 
+    @subsection fsevent_2_0 fsevent Module Version 2.0.0
+    - <b>BREAKING CHANGE</b>: addPath() now returns \c AbstractFsWatcher for fluent API chaining instead of the watch ID
+    - Added addPathWithId() for cases where the watch ID is needed
+    - Added symlink support: setFollowSymlinks(), getFollowSymlinks(), setAllowOutOfScopeLinks(), getAllowOutOfScopeLinks()
+    - Added error query methods: getLastErrorCode(), getLastErrorMessage(), clearLastError()
+    - Added error constants: E_NOERROR, E_FILENOTFOUND, E_FILEREPEATED, E_FILEOUTOFSCOPE, E_FILENOTREADABLE, E_FILEREMOTE, E_WATCHERFAILED, E_UNSPECIFIED
+    - Added getBackendType() to identify the platform backend (inotify, kqueue, win32, generic)
+    - Added getStatistics() for watcher state information
+    - Added isWatching() and getWatchCount() query methods
+    - Fixed ACTION_MAP and ACTION_RMAP to use symbolic efsw constants
+
     @subsection fsevent_1_1 fsevent Module Version 1.1.0
     - updated to the efsw 1.4.1
 
     @subsection fsevent_1_0 fsevent Module Version 1.0
     - initial public release
+
+    @section fsevent_troubleshooting Troubleshooting Guide
+
+    @subsection fsevent_troubleshooting_linux Linux (inotify)
+
+    <b>Issue: "Too many open files" or EMFILE error</b>
+
+    The inotify subsystem has configurable limits. Check and increase them:
+    @code{.sh}
+# Check current limits
+cat /proc/sys/fs/inotify/max_user_watches
+cat /proc/sys/fs/inotify/max_user_instances
+
+# Temporarily increase (until reboot)
+sudo sysctl fs.inotify.max_user_watches=524288
+sudo sysctl fs.inotify.max_user_instances=512
+
+# Permanently increase (add to /etc/sysctl.conf)
+fs.inotify.max_user_watches=524288
+fs.inotify.max_user_instances=512
+    @endcode
+
+    <b>Issue: Events not received for NFS/network mounts</b>
+
+    inotify only works for local filesystems. For network mounts, the module automatically
+    falls back to the generic polling watcher.
+
+    @subsection fsevent_troubleshooting_macos macOS/BSD (kqueue)
+
+    <b>Issue: Watcher stops working with many files</b>
+
+    kqueue requires a file descriptor for each watched file/directory. Increase the limit:
+    @code{.sh}
+# Check current limit
+ulimit -n
+
+# Increase for current session
+ulimit -n 4096
+
+# For permanent change, edit /etc/launchd.conf or use launchctl
+    @endcode
+
+    When the file descriptor limit is reached, the module falls back to generic polling.
+
+    @subsection fsevent_troubleshooting_windows Windows
+
+    <b>Issue: Symlinks not followed</b>
+
+    Windows I/O Completion Ports do not support following symbolic links. This is a
+    platform limitation.
+
+    <b>Issue: Events missing on network drives</b>
+
+    Network/remote filesystems may not properly notify about changes. Consider using
+    shorter polling intervals or local file staging.
+
+    @subsection fsevent_troubleshooting_generic Generic Watcher
+
+    The generic (polling) watcher is used as a fallback when native backends fail.
+
+    <b>Characteristics:</b>
+    - Higher CPU usage due to periodic directory scanning
+    - Configurable polling interval affects latency vs CPU trade-off
+    - Memory overhead for caching directory state
+    - Works on all platforms and filesystem types
+
+    @section fsevent_performance Performance Best Practices
+
+    @subsection fsevent_performance_general General Recommendations
+
+    1. <b>Minimize watched directories</b>: Watch specific directories rather than entire filesystems
+    2. <b>Use non-recursive watching when possible</b>: Recursive watching uses more resources
+    3. <b>Filter events early</b>: Use file masks to reduce callback overhead
+    4. <b>Avoid heavy processing in callbacks</b>: Queue events for processing in separate threads
+    5. <b>Use AbstractDelayedFsEventPoller for high-volume scenarios</b>: Batches rapid changes
+
+    @subsection fsevent_performance_platform Platform-Specific Tips
+
+    <b>Linux:</b>
+    - Pre-allocate inotify watches: sysctl fs.inotify.max_user_watches
+    - Use recursive=False for directories with many subdirectories
+    - Monitor inotify usage: cat /proc/sys/fs/inotify/max_user_watches
+
+    <b>macOS/BSD:</b>
+    - Increase file descriptor limits before starting watchers
+    - Avoid watching directories with thousands of files
+    - Consider using glob masks to reduce scope
+
+    <b>Windows:</b>
+    - Increase I/O completion port buffer size for fast filesystems
+    - Avoid watching network drives if possible
+    - Use longer minage values for remote files
 */

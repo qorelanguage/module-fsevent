@@ -1,0 +1,142 @@
+#!/usr/bin/env qore
+# -*- mode: qore; indent-tabs-mode: nil -*-
+#
+# Negative tests for the fsevent module
+#
+
+%new-style
+%require-types
+%strict-args
+%enable-all-warnings
+
+%requires Util
+%requires QUnit
+%requires fsevent
+
+%exec-class NegativeTests
+
+class SimpleWatcher inherits AbstractFsWatcher {
+    public {
+        list<hash<FsEventInfo>> events();
+    }
+
+    event(hash<FsEventInfo> event) {
+        events += event;
+    }
+}
+
+public class NegativeTests inherits QUnit::Test {
+    constructor() : Test("fsevent-negative", "1.0") {
+        addTestCase("Invalid path - non-existent directory", \testNonExistentPath());
+        addTestCase("Invalid path - empty string", \testEmptyPath());
+        addTestCase("Remove path with invalid ID", \testRemoveInvalidId());
+        addTestCase("Remove path twice", \testRemovePathTwice());
+        addTestCase("Copy constructor throws", \testCopyThrows());
+        addTestCase("Add path - file instead of directory", \testAddFile());
+        addTestCase("Add same path twice", \testAddPathTwice());
+        addTestCase("Fluent API test", \testFluentApi());
+
+        set_return_value(main());
+    }
+
+    testNonExistentPath() {
+        SimpleWatcher w();
+        string nonExistentPath = "/this/path/definitely/does/not/exist/anywhere_" + string(rand());
+
+        assertThrows("FSWATCHER-ADD-ERROR", sub() {
+            w.addPath(nonExistentPath);
+        });
+    }
+
+    testEmptyPath() {
+        SimpleWatcher w();
+
+        # Empty string should fail
+        assertThrows("FSWATCHER-ADD-ERROR", sub() {
+            w.addPath("");
+        });
+    }
+
+    testRemoveInvalidId() {
+        SimpleWatcher w();
+
+        # Removing a non-existent watch ID should not crash
+        # (efsw silently ignores invalid IDs)
+        w.removePath(999999);
+        w.removePath(-1);
+        assertTrue(True, "removePath with invalid ID should not throw");
+    }
+
+    testRemovePathTwice() {
+        SimpleWatcher w();
+        string path = tmp_location();
+
+        int id = w.addPathWithId(path);
+        assertGt(0, id, "addPathWithId should return positive ID");
+
+        # First remove should work
+        w.removePath(id);
+
+        # Second remove should not crash (efsw handles gracefully)
+        w.removePath(id);
+        assertTrue(True, "Double removePath should not throw");
+    }
+
+    testCopyThrows() {
+        SimpleWatcher w();
+
+        assertThrows("FSWATCHER-COPY-ERROR", sub() {
+            SimpleWatcher w2 = w.copy();
+        });
+    }
+
+    testAddFile() {
+        SimpleWatcher w();
+
+        # Create a temporary file
+        string tmpDir = tmp_location();
+        string tmpFile = tmpDir + DirSep + "test_file_" + string(rand()) + ".txt";
+
+        File f();
+        f.open2(tmpFile, O_CREAT | O_WRONLY | O_TRUNC);
+        f.write("test");
+        f.close();
+
+        on_exit {
+            unlink(tmpFile);
+        }
+
+        # Adding a file (not directory) should fail
+        assertThrows("FSWATCHER-ADD-ERROR", sub() {
+            w.addPath(tmpFile);
+        });
+    }
+
+    testAddPathTwice() {
+        SimpleWatcher w();
+        string path = tmp_location();
+
+        int id1 = w.addPathWithId(path);
+        assertGt(0, id1, "First addPathWithId should return positive ID");
+
+        # Adding the same path again should fail with FileRepeated error
+        assertThrows("FSWATCHER-ADD-ERROR", sub() {
+            w.addPath(path);
+        });
+
+        # Cleanup
+        w.removePath(id1);
+    }
+
+    testFluentApi() {
+        SimpleWatcher w();
+        string path = tmp_location();
+
+        # Test fluent API chaining
+        AbstractFsWatcher result = w.addPath(path);
+        assertEq(w, result, "addPath should return self for fluent API");
+
+        # Cleanup
+        w.removePath(path);
+    }
+}
