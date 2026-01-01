@@ -289,6 +289,19 @@ public class Main inherits QUnit::Test {
         m_dir.removeFile(f1);
     }
 
+    # Same as testDelayedFilesSetSimple but counter is managed externally
+    private testDelayedFilesSetSimpleNoCounter() {
+        on_exit m_c.dec();
+
+        string f1 = get_tmp_fname();
+
+        File f = m_dir.openFile(f1, O_CREAT | O_TRUNC | O_WRONLY, 0644);
+        f.write('lorem ipsum\n');
+        f.close();
+
+        m_dir.removeFile(f1);
+    }
+
     private testDelayedFilesSet() {
         for (int i = 0; i < ITERATIONS; i++) {
             testOneFileDelayed();
@@ -316,7 +329,6 @@ public class Main inherits QUnit::Test {
     }
 
     multipleDelayedThreads() {
-        m_c.inc();
         hash<FsDelayedEventPollerOptionInfo> opts(DEFAULT_OPTS + {
             "minage": 1,
         });
@@ -325,11 +337,14 @@ public class Main inherits QUnit::Test {
 
         # Use simplified test that doesn't set strict event expectations
         # because events may be coalesced by the delayed poller
+        # Increment counter for each thread BEFORE launching to avoid race condition
         for (int i = 0; i < THREADS; i++) {
-            background testDelayedFilesSetSimple();
+            m_c.inc();
+        }
+        for (int i = 0; i < THREADS; i++) {
+            background testDelayedFilesSetSimpleNoCounter();
         }
 
-        m_c.dec();
         # Wait for all threads to complete
         m_c.waitForZero();
         w.stop();
