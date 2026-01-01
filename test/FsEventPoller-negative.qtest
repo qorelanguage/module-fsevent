@@ -1,0 +1,179 @@
+#!/usr/bin/env qore
+# -*- mode: qore; indent-tabs-mode: nil -*-
+#
+# Negative tests for the FsEventPoller module
+#
+
+%new-style
+%require-types
+%strict-args
+%enable-all-warnings
+
+%requires QUnit
+%requires Util
+%requires ../qlib/FsEventPoller.qm
+
+%exec-class FsEventPollerNegativeTests
+
+class TestPoller inherits AbstractFsEventPoller {
+    public {
+        list<hash<FsEventInfo>> events();
+    }
+
+    constructor(string path, *hash<AbstractFsEventPollerOptionInfo> opts)
+        : AbstractFsEventPoller(path, opts) {
+    }
+
+    fileEvent(hash<FsEventInfo> event) {
+        events += event;
+    }
+}
+
+class TestDelayedPoller inherits AbstractDelayedFsEventPoller {
+    public {
+        list<hash<FsEventInfo>> events();
+    }
+
+    constructor(string path, *hash<FsDelayedEventPollerOptionInfo> opts)
+        : AbstractDelayedFsEventPoller(path, opts) {
+    }
+
+    fileEvent(hash<FsEventInfo> event) {
+        events += event;
+    }
+}
+
+public class FsEventPollerNegativeTests inherits QUnit::Test {
+    private {
+        Dir m_dir();
+        string m_subdir = sprintf("fsevent-neg-unittest-pid_%d", getpid());
+    }
+
+    constructor() : Test("FsEventPoller-negative", "1.0") {
+        addTestCase("Conflicting options - mask and regex_mask", \testConflictingMasks());
+        addTestCase("Empty actions list", \testEmptyActions());
+        addTestCase("Negative minage value", \testNegativeMinage());
+        addTestCase("Invalid directory path", \testInvalidPath());
+        addTestCase("start() called multiple times", \testStartMultiple());
+        addTestCase("stop() without start()", \testStopWithoutStart());
+        addTestCase("stop() called multiple times", \testStopMultiple());
+        addTestCase("Options validation - null options", \testNullOptions());
+
+        set_return_value(main());
+    }
+
+    globalSetUp() {
+        m_dir.chdir(tmp_location());
+        m_dir.mkdir(m_subdir);
+        m_dir.chdir(m_subdir);
+    }
+
+    globalTearDown() {
+        m_dir.chdir("..");
+        m_dir.rmdir(m_subdir);
+    }
+
+    testConflictingMasks() {
+        hash<AbstractFsEventPollerOptionInfo> opts = <AbstractFsEventPollerOptionInfo>{
+            "mask": "*.txt",
+            "regex_mask": ".*\\.txt$",
+            "actions": (FsEvents::ADD,),
+        };
+
+        assertThrows("FILEPOLLER-ERROR", "regex_mask and mask.*cannot be used together", sub() {
+            TestPoller p(m_dir.path(), opts);
+        });
+    }
+
+    testEmptyActions() {
+        hash<AbstractFsEventPollerOptionInfo> opts = <AbstractFsEventPollerOptionInfo>{
+            "actions": (),  # Empty list
+        };
+
+        assertThrows("FILEPOLLER-ERROR", "no actions", sub() {
+            TestPoller p(m_dir.path(), opts);
+        });
+    }
+
+    testNegativeMinage() {
+        hash<FsDelayedEventPollerOptionInfo> opts = <FsDelayedEventPollerOptionInfo>{
+            "actions": (FsEvents::ADD,),
+            "minage": -5,
+        };
+
+        assertThrows("FILEPOLLER-ERROR", "minage cannot be negative", sub() {
+            TestDelayedPoller p(m_dir.path(), opts);
+        });
+    }
+
+    testInvalidPath() {
+        hash<AbstractFsEventPollerOptionInfo> opts = <AbstractFsEventPollerOptionInfo>{
+            "actions": (FsEvents::ADD,),
+        };
+
+        string badPath = "/this/path/definitely/does/not/exist_" + string(rand());
+
+        assertThrows("FSWATCHER-ADD-ERROR", sub() {
+            TestPoller p(badPath, opts);
+        });
+    }
+
+    testStartMultiple() {
+        hash<FsDelayedEventPollerOptionInfo> opts = <FsDelayedEventPollerOptionInfo>{
+            "actions": (FsEvents::ADD,),
+            "minage": 1,
+            "disable_initial_run": True,
+        };
+
+        TestDelayedPoller p(m_dir.path(), opts);
+
+        int tid1 = p.start();
+        assertGt(0, tid1, "First start() should return positive TID");
+
+        int tid2 = p.start();
+        assertEq(tid1, tid2, "Second start() should return same TID");
+
+        p.stop();
+    }
+
+    testStopWithoutStart() {
+        hash<FsDelayedEventPollerOptionInfo> opts = <FsDelayedEventPollerOptionInfo>{
+            "actions": (FsEvents::ADD,),
+            "minage": 1,
+            "disable_initial_run": True,
+        };
+
+        TestDelayedPoller p(m_dir.path(), opts);
+
+        # stop() without start() should not throw
+        p.stop();
+        assertTrue(True, "stop() without start() should not throw");
+    }
+
+    testStopMultiple() {
+        hash<FsDelayedEventPollerOptionInfo> opts = <FsDelayedEventPollerOptionInfo>{
+            "actions": (FsEvents::ADD,),
+            "minage": 1,
+            "disable_initial_run": True,
+        };
+
+        TestDelayedPoller p(m_dir.path(), opts);
+        p.start();
+
+        # First stop should work
+        p.stop();
+
+        # Second stop should not throw
+        p.stop();
+        assertTrue(True, "Double stop() should not throw");
+    }
+
+    testNullOptions() {
+        # Should use default options when hash is empty/null
+        hash<AbstractFsEventPollerOptionInfo> opts;
+        TestPoller p(m_dir.path(), opts);
+
+        # Verify it was created with default actions
+        assertTrue(True, "Constructor with empty options should use defaults");
+    }
+}

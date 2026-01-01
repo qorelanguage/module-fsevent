@@ -1,20 +1,153 @@
 
-* BUILD INSTRUCTIONS *
+Qore fsevent Module
+===================
+
+A cross-platform filesystem event monitoring module for the Qore programming language.
+
+OVERVIEW
+--------
+
+The fsevent module provides real-time filesystem monitoring capabilities, allowing
+applications to receive notifications when files and directories are created, modified,
+moved, or deleted. It wraps the "Entropia File System Watcher" (efsw) library.
+
+Features:
+ - Cross-platform support (Linux, macOS, FreeBSD, Windows)
+ - Recursive directory watching
+ - Symlink following (optional)
+ - Multiple platform-native backends with automatic fallback
+ - High-level polling API for delayed event processing
+
+Platform Backends:
+ - Linux: inotify (kernel 2.6.13+)
+ - macOS/FreeBSD: kqueue
+ - Windows: I/O Completion Ports
+ - Generic: Polling-based fallback (all platforms)
+
+QUICK START
+-----------
+
+Basic usage example:
+
+    %requires fsevent
+
+    class MyWatcher inherits FsEvents::AbstractFsWatcher {
+        event(hash<FsEventInfo> event) {
+            printf("Event: %s %s%s%s\n",
+                ACTION_MAP{event.action},
+                event.dir,
+                event.name,
+                event.old_name ? " (was: " + event.old_name + ")" : "");
+        }
+    }
+
+    MyWatcher w();
+    w.addPath("/var/log", True);  # True = recursive
+    while (True) {
+        sleep(1);
+    }
+
+For delayed event processing (useful for non-atomic file creation):
+
+    %requires FsEventPoller
+
+    class MyPoller inherits AbstractDelayedFsEventPoller {
+        constructor(string path) : AbstractDelayedFsEventPoller(path, {
+            "minage": 5,           # Wait 5 seconds after last modification
+            "mask": "*.csv",       # Only match CSV files
+        }) {}
+
+        fileEvent(hash<FsEventInfo> event) {
+            printf("Ready to process: %s\n", event.name);
+        }
+    }
+
+    MyPoller p("/data/incoming");
+    p.start();
+
+API SUMMARY
+-----------
+
+Core Classes:
+ - AbstractFsWatcher: Base class for filesystem monitoring
+   - addPath(string path, bool recursive): Add directory to watch
+   - removePath(int id | string path): Remove watched directory
+   - directories(): List watched directories
+   - event(hash<FsEventInfo>): Abstract callback (override this)
+
+Event Constants:
+ - ADD, DELETE, MODIFIED, MOVED
+ - ACTION_MAP: int -> string mapping
+ - ACTION_RMAP: string -> int mapping
+
+FsEventInfo Hash:
+ - id: Watch ID
+ - dir: Directory path
+ - name: Filename
+ - action: Event type (ADD, DELETE, MODIFIED, MOVED)
+ - old_name: Previous name (for MOVED events)
+
+High-Level Modules:
+ - FsEventPoller: AbstractFsEventPoller, AbstractDelayedFsEventPoller
+ - FsEventPollerUtil: DataProvider integration
+
+BUILD INSTRUCTIONS
+------------------
 
 Requirements:
- - Qore development environment (lib and headers)
- - Cmake
- - (optional) DOxygen
+ - Qore development environment (lib and headers) >= 0.9
+ - CMake >= 3.0
+ - C++11 compiler
+ - (optional) Doxygen for API documentation
 
-Use so called "out of source" build
+Build steps:
 
- - mkdir build   (in module directory)
- - cd build
- - cmake -DCMAKE_INSTALL_PREFIX=/path/to/install ..   (if there is not -DCMAKE_INSTALL_PREFIX specified, the Qore module dire is used)
- - make
- - cross fingers
- - make install
+    mkdir build
+    cd build
+    cmake -DCMAKE_INSTALL_PREFIX=/path/to/install ..
+    make
+    make install
 
-Some tests are located in "test" directory.
+If -DCMAKE_INSTALL_PREFIX is not specified, the Qore module directory is used.
 
-** NOTE: based on the "Entropia File System Watcher" (efsw): https://bitbucket.org/SpartanJ/efsw, used under the MIT license
+TROUBLESHOOTING
+---------------
+
+Linux (inotify):
+ - "Too many open files" error: Increase inotify limits
+     sysctl fs.inotify.max_user_watches=524288
+     sysctl fs.inotify.max_user_instances=512
+ - Check current limits: cat /proc/sys/fs/inotify/max_user_watches
+
+macOS/BSD (kqueue):
+ - Limited by max file descriptors per process
+ - Increase with: ulimit -n 4096
+ - Falls back to generic watcher if limit reached
+
+Windows:
+ - Symlinks are not followed (OS limitation)
+ - Remote/network drives may have reduced functionality
+
+Generic Watcher:
+ - Higher CPU usage due to polling
+ - Memory overhead for directory caching
+ - Used as fallback when native backend fails
+
+TESTS
+-----
+
+Tests are located in the "test" directory:
+ - fsevent.qtest: Core module tests
+ - FsEventPoller.qm.qtest: High-level API tests
+
+Run tests:
+    qore test/fsevent.qtest
+    qore test/FsEventPoller.qm.qtest
+
+LICENSE
+-------
+
+Dual licensed under LGPL 2.1 or MIT (see COPYING.MIT)
+
+Based on the "Entropia File System Watcher" (efsw):
+https://github.com/SpartanJ/efsw

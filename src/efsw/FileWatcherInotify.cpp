@@ -78,8 +78,8 @@ WatchID FileWatcherInotify::addWatch( const std::string& directory, FileWatchLis
 }
 
 WatchID FileWatcherInotify::addWatch( const std::string& directory, FileWatchListener* watcher,
-									  bool recursive, bool syntheticEvents,
-									  WatcherInotify* parent, bool fromInternalEvent ) {
+									  bool recursive, bool syntheticEvents, WatcherInotify* parent,
+									  bool fromInternalEvent ) {
 	std::string dir( directory );
 
 	FileSystem::dirAddSlashAtEnd( dir );
@@ -157,7 +157,8 @@ WatchID FileWatcherInotify::addWatch( const std::string& directory, FileWatchLis
 
 		if ( fromInternalEvent && parent != NULL && syntheticEvents ) {
 			for ( const auto& file : files ) {
-				if ( file.second.isRegularFile() || file.second.isDirectory() || file.second.isLink() ) {
+				if ( file.second.isRegularFile() || file.second.isDirectory() ||
+					 file.second.isLink() ) {
 					pWatch->Listener->handleFileAction(
 						pWatch->ID, pWatch->Directory,
 						FileSystem::fileNameFromPath( file.second.Filepath ), Actions::Add );
@@ -174,7 +175,8 @@ WatchID FileWatcherInotify::addWatch( const std::string& directory, FileWatchLis
 			const FileInfo& cfi = it->second;
 
 			if ( cfi.isDirectory() && cfi.isReadable() ) {
-				addWatch( cfi.Filepath, watcher, recursive, syntheticEvents, pWatch, fromInternalEvent );
+				addWatch( cfi.Filepath, watcher, recursive, syntheticEvents, pWatch,
+						  fromInternalEvent );
 			}
 		}
 	}
@@ -251,14 +253,29 @@ void FileWatcherInotify::removeWatch( const std::string& directory ) {
 void FileWatcherInotify::removeWatch( WatchID watchid ) {
 	if ( !mInitOK )
 		return;
+	// Wait for any in-progress action to complete before removing the watch
+	// This prevents use-after-free if run() is currently using this watcher
+	// Max wait: 5 seconds (5000 iterations * 1ms)
+	int waitCount = 0;
+	while ( mIsTakingAction ) {
+		usleep( 1000 );
+		if ( ++waitCount > 5000 ) {
+			// Still waiting after 5 seconds - log warning but continue waiting
+			// We cannot safely return early as that would cause use-after-free
+			efDEBUG( "removeWatch: waiting for in-progress action to complete "
+					 "(mIsTakingAction still true after 5 seconds)\n" );
+			waitCount = 0;
+		}
+	}
 	Lock initLock( mInitLock );
 	Lock lock( mWatchesLock );
+	Lock l( mRealWatchesLock );  // Must lock mRealWatchesLock since removeWatchLocked accesses mRealWatches
 	removeWatchLocked( watchid );
 }
 
 void FileWatcherInotify::watch() {
 	if ( NULL == mThread ) {
-		mThread = new Thread([this]{run();});
+		mThread = new Thread( [this] { run(); } );
 		mThread->launch();
 	}
 }
@@ -281,8 +298,8 @@ Watcher* FileWatcherInotify::watcherContainsDirectory( std::string dir ) {
 void FileWatcherInotify::run() {
 	char* buff = new char[BUFF_SIZE];
 	memset( buff, 0, BUFF_SIZE );
-	WatchMap::iterator wit;
 
+	WatcherInotify* curWatcher = NULL;
 	WatcherInotify* currentMoveFrom = NULL;
 	u_int32_t currentMoveCookie = -1;
 	bool lastWasMovedFrom = false;
@@ -308,16 +325,38 @@ void FileWatcherInotify::run() {
 					struct inotify_event* pevent = (struct inotify_event*)&buff[i];
 
 					{
+						curWatcher = NULL;
+
 						{
 							Lock lock( mWatchesLock );
 
-							wit = mWatches.find( pevent->wd );
+							auto wit = mWatches.find( pevent->wd );
+
+							if ( wit != mWatches.end() )
+								curWatcher = wit->second;
+
+							// Check if currentMoveFrom is still valid
+							if ( currentMoveFrom ) {
+								auto moveFromIt = mWatches.find( currentMoveFrom->InotifyID );
+								if ( moveFromIt == mWatches.end() ) {
+									// Watcher was removed, clear our cached pointer
+									currentMoveFrom = NULL;
+									currentMoveCookie = -1;
+								}
+							}
+
+							// Set mIsTakingAction BEFORE releasing the lock to prevent
+							// removeWatch() from deleting the watcher while we're using it
+							// Keep it true as long as we have any cached watcher pointer
+							if ( curWatcher || currentMoveFrom ) {
+								mIsTakingAction = true;
+							}
 						}
 
-						if ( wit != mWatches.end() ) {
-							handleAction( wit->second, (char*)pevent->name, pevent->mask );
+						if ( curWatcher ) {
+							handleAction( curWatcher, (char*)pevent->name, pevent->mask );
 
-							if ( ( pevent->mask & IN_MOVED_TO ) && wit->second == currentMoveFrom &&
+							if ( ( pevent->mask & IN_MOVED_TO ) && curWatcher == currentMoveFrom &&
 								 pevent->cookie == currentMoveCookie ) {
 								/// make pair success
 								currentMoveFrom = NULL;
@@ -330,14 +369,30 @@ void FileWatcherInotify::run() {
 										std::make_pair( currentMoveFrom, prevOldFileName ) );
 								}
 
-								currentMoveFrom = wit->second;
+								currentMoveFrom = curWatcher;
 								currentMoveCookie = pevent->cookie;
 							} else {
 								/// Keep track of the IN_MOVED_FROM events to know
 								/// if the IN_MOVED_TO event is also fired
 								if ( currentMoveFrom ) {
-									mMovedOutsideWatches.push_back(
-										std::make_pair( currentMoveFrom, prevOldFileName ) );
+									if ( std::find_if( mMovedOutsideWatches.begin(),
+													   mMovedOutsideWatches.end(),
+													   [currentMoveFrom](
+														   const std::pair<WatcherInotify*,
+																		   std::string>& moved ) {
+														   return moved.first == currentMoveFrom;
+													   } ) == mMovedOutsideWatches.end() ) {
+										mMovedOutsideWatches.push_back(
+											std::make_pair( currentMoveFrom, prevOldFileName ) );
+									} else {
+										efDEBUG( "Info: Tried to add watch to the moved outside "
+												 "watches but it was already there, Watch ID: %d - "
+												 "Address: %p - Path: \"%s\" - prevOldFileName: "
+												 "\"%s\"\n",
+												 pevent->wd, currentMoveFrom,
+												 currentMoveFrom->Directory.c_str(),
+												 prevOldFileName.c_str() );
+									}
 								}
 
 								currentMoveFrom = NULL;
@@ -348,6 +403,11 @@ void FileWatcherInotify::run() {
 						lastWasMovedFrom = ( pevent->mask & IN_MOVED_FROM ) != 0;
 						if ( pevent->mask & IN_MOVED_FROM )
 							prevOldFileName = std::string( (char*)pevent->name );
+
+						// Clear mIsTakingAction only when we have no cached watcher pointers
+						if ( !curWatcher && !currentMoveFrom ) {
+							mIsTakingAction = false;
+						}
 					}
 
 					i += sizeof( struct inotify_event ) + pevent->len;
@@ -356,13 +416,40 @@ void FileWatcherInotify::run() {
 		} else {
 			// Here means no event received
 			// If last event is IN_MOVED_FROM, we assume no IN_MOVED_TO
+			{
+				Lock lock( mWatchesLock );
+
+				// Check if currentMoveFrom is still valid
+				if ( currentMoveFrom ) {
+					auto moveFromIt = mWatches.find( currentMoveFrom->InotifyID );
+					if ( moveFromIt == mWatches.end() ) {
+						// Watcher was removed, clear our cached pointer
+						currentMoveFrom = NULL;
+						currentMoveCookie = -1;
+					} else {
+						mIsTakingAction = true;
+					}
+				}
+			}
+
 			if ( currentMoveFrom ) {
-				mMovedOutsideWatches.push_back(
-					std::make_pair( currentMoveFrom, currentMoveFrom->OldFileName ) );
+				if ( std::find_if(
+						 mMovedOutsideWatches.begin(), mMovedOutsideWatches.end(),
+						 [currentMoveFrom]( const std::pair<WatcherInotify*, std::string>& moved ) {
+							 return moved.first == currentMoveFrom;
+						 } ) == mMovedOutsideWatches.end() ) {
+					mMovedOutsideWatches.push_back(
+						std::make_pair( currentMoveFrom, currentMoveFrom->OldFileName ) );
+				} else {
+					efDEBUG( "Warning: Tried to add watch to the moved outside "
+							 "watches but it was already there, Watch Address: %p\n",
+							 currentMoveFrom );
+				}
 			}
 
 			currentMoveFrom = NULL;
 			currentMoveCookie = -1;
+			mIsTakingAction = false;
 		}
 
 		if ( !mMovedOutsideWatches.empty() ) {
@@ -392,8 +479,8 @@ void FileWatcherInotify::run() {
 						continue;
 				}
 
-				Watcher* watch = ( *it ).first;
-				const std::string& oldFileName = ( *it ).second;
+				Watcher* watch = it->first;
+				const std::string& oldFileName = it->second;
 
 				/// Check if the file move was a folder already being watched
 				std::vector<Watcher*> eraseWatches;
@@ -401,8 +488,8 @@ void FileWatcherInotify::run() {
 				{
 					Lock lock( mWatchesLock );
 
-					for ( ; wit != mWatches.end(); ++wit ) {
-						Watcher* oldWatch = wit->second;
+					for ( auto wit : mWatches ) {
+						Watcher* oldWatch = wit.second;
 
 						if ( oldWatch != watch &&
 							 -1 != String::strStartsWith( watch->Directory + oldFileName + "/",
@@ -474,7 +561,8 @@ void FileWatcherInotify::handleAction( Watcher* watch, const std::string& filena
 	if ( !watch || !watch->Listener || !mInitOK ) {
 		return;
 	}
-	mIsTakingAction = true;
+	// Note: mIsTakingAction is now controlled by run() to cover the entire
+	// event processing cycle, not just this function
 	Lock initLock( mInitLock );
 
 	std::string fpath( watch->Directory + filename );
@@ -541,7 +629,7 @@ void FileWatcherInotify::handleAction( Watcher* watch, const std::string& filena
 			}
 		}
 	}
-	mIsTakingAction = false;
+	// Note: mIsTakingAction is now cleared by run() after all event processing is complete
 }
 
 std::vector<std::string> FileWatcherInotify::directories() {

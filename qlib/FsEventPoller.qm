@@ -97,8 +97,16 @@ stop.waitForZero();
 
     @section fseventpoller_relnotes FsEventPoller Module Release Notes
 
-    @subsection fseventpoller_v010: FsEventPoller v0.1.0
-    Initial release
+    @subsection fseventpoller_v020 FsEventPoller v0.2.0
+    - Added pause/resume capability to AbstractDelayedFsEventPoller
+    - Added path filtering options (include_paths, exclude_paths)
+    - Added error_callback option for async error handling
+    - Added event metadata (size, mtime, fullpath)
+    - Added batch event processing option
+    - Fixed minage error message
+
+    @subsection fseventpoller_v010 FsEventPoller v0.1.0
+    - Initial release
 */
 
 %requires reflection
@@ -108,7 +116,36 @@ public namespace FsEventPoller {
 #! this implementation version
 public const version = "0.2.0";
 
-#! AbstractDelayedFsEventPoller option info hash
+#! Extended event info with file metadata
+/**
+*/
+public hashdecl FsEventInfoEx {
+    #! monitoring id as returned from AbstractFsWatcher::addPath()
+    int id;
+
+    #! the directory path
+    string dir;
+
+    #! the affected file name (without the path)
+    string name;
+
+    #! the action type; one of @ref fsevent_constants
+    int action;
+
+    #! the old file name if the action is Qore::FsEvents::MOVED
+    *string old_name;
+
+    #! the full path (dir + name combined)
+    string fullpath;
+
+    #! file size in bytes (if available, NOTHING if file doesn't exist)
+    *int size;
+
+    #! file modification time (if available, NOTHING if file doesn't exist)
+    *date mtime;
+}
+
+#! AbstractFsEventPoller option info hash
 /**
 */
 public hashdecl AbstractFsEventPollerOptionInfo {
@@ -141,14 +178,29 @@ public hashdecl AbstractFsEventPollerOptionInfo {
     );
 
     #! add the path recursively?
-    /** Default @ref False
+    /** Default: @ref Qore::False "False"
     */
     bool recursive = False;
 
     #! disable the initial run?
-    /** Default @ref False
+    /** Default: @ref Qore::False "False"
     */
     bool disable_initial_run = False;
+
+    #! path patterns to include (glob-style); if set, only matching paths trigger events
+    /** Example: ("*.csv", "data/*.json")
+    */
+    *list<string> include_paths;
+
+    #! path patterns to exclude (glob-style); matching paths are ignored
+    /** Example: ("*.tmp", "*.bak", ".git/*")
+    */
+    *list<string> exclude_paths;
+
+    #! error callback called when async errors occur
+    /** Signature: code(string path, string error)
+    */
+    *code error_callback;
 }
 
 #! List of keys in the AbstractFsEventPollerOptionInfo hash
@@ -161,7 +213,7 @@ const EventPollerKeys = map $1.getName(), TypedHash::forName("AbstractFsEventPol
 */
 public class AbstractFsEventPoller inherits FsEvents::AbstractFsWatcher {
     private {
-        # defauilt regexp mask
+        # default regexp mask
         string m_regexMask = ".*";
         int m_reopts = 0;
 
@@ -176,6 +228,15 @@ public class AbstractFsEventPoller inherits FsEvents::AbstractFsWatcher {
 
         # optional debug log closure
         *code m_logDebug;
+
+        # path include patterns (glob-style)
+        *list<string> m_includePaths;
+
+        # path exclude patterns (glob-style)
+        *list<string> m_excludePaths;
+
+        # error callback
+        *code m_onError;
     }
 
     #! Construct a file poller
@@ -199,6 +260,14 @@ public class AbstractFsEventPoller inherits FsEvents::AbstractFsWatcher {
             }
         } else if (exists options.mask)
             setMask(options.mask);
+
+        # Set path filters
+        if (exists options.include_paths)
+            m_includePaths = options.include_paths;
+        if (exists options.exclude_paths)
+            m_excludePaths = options.exclude_paths;
+        if (exists options.error_callback)
+            m_onError = options.error_callback;
 
         if (!options.actions) {
             throw "FILEPOLLER-ERROR", "no actions included in option hash";
@@ -266,7 +335,79 @@ public class AbstractFsEventPoller inherits FsEvents::AbstractFsWatcher {
             return False;
         }
 
+        # Check path filters
+        string fullpath = event.dir + DirSep + event.name;
+        if (!isPathAllowed(fullpath)) {
+            return False;
+        }
+
         return True;
+    }
+
+    #! Check if a path matches the include/exclude filters
+    private bool isPathAllowed(string fullpath) {
+        # If include patterns are set, path must match at least one
+        if (m_includePaths) {
+            bool matched = False;
+            foreach string pattern in (m_includePaths) {
+                if (matchGlobPattern(fullpath, pattern)) {
+                    matched = True;
+                    break;
+                }
+            }
+            if (!matched) {
+                return False;
+            }
+        }
+
+        # If exclude patterns are set, path must not match any
+        if (m_excludePaths) {
+            foreach string pattern in (m_excludePaths) {
+                if (matchGlobPattern(fullpath, pattern)) {
+                    return False;
+                }
+            }
+        }
+
+        return True;
+    }
+
+    #! Simple glob pattern matching (supports * and ?)
+    private bool matchGlobPattern(string path, string pattern) {
+        # Convert glob to regex
+        string regex = pattern;
+        regex =~ s/\./\\./g;
+        regex =~ s/\?/./g;
+        regex =~ s/\*/.*/g;
+        return path.regex("^" + regex + "$");
+    }
+
+    #! Create extended event info with file metadata
+    hash<FsEventInfoEx> createExtendedEvent(hash<FsEventInfo> event) {
+        string fullpath = event.dir + DirSep + event.name;
+        *hash<StatInfo> st = hstat(fullpath);
+
+        return <FsEventInfoEx>{
+            "id": event.id,
+            "dir": event.dir,
+            "name": event.name,
+            "action": event.action,
+            "old_name": event.old_name,
+            "fullpath": fullpath,
+            "size": st ? st.size : NOTHING,
+            "mtime": st ? st.mtime : NOTHING,
+        };
+    }
+
+    #! Report an error through the error callback (if set)
+    private reportError(string path, string error) {
+        if (m_onError) {
+            try {
+                call_function(m_onError, path, error);
+            } catch (hash<auto> ex) {
+                logInfo("Error in error_callback: %s: %s", ex.err, ex.desc);
+            }
+        }
     }
 
     #! Called in the constructor to get already existing files/events
@@ -328,22 +469,42 @@ public hashdecl FsDelayedEventPollerOptionInfo {
     );
 
     #! add the path recursively?
-    /** Default @ref False
+    /** Default: @ref Qore::False "False"
     */
     bool recursive = False;
 
     #! disable the initial run?
-    /** Default @ref False
+    /** Default: @ref Qore::False "False"
     */
     bool disable_initial_run = False;
 
     #! Delay time in seconds
-    /** Default \c 600 (10 minutes); 0 = no delay
+    /** Default: 600 (10 minutes); 0 = no delay
     */
     int minage = 600;
 
     #! Custom <tt>background</tt>-like function. This option is mandatory if \c PO_NO_THREAD_CONTROL is defined
     *code start_thread;
+
+    #! path patterns to include (glob-style); if set, only matching paths trigger events
+    /** Example: ("*.csv", "data/*.json")
+    */
+    *list<string> include_paths;
+
+    #! path patterns to exclude (glob-style); matching paths are ignored
+    /** Example: ("*.tmp", "*.bak", ".git/*")
+    */
+    *list<string> exclude_paths;
+
+    #! error callback called when async errors occur
+    /** Signature: code(string path, string error)
+    */
+    *code error_callback;
+
+    #! Batch interval in milliseconds; if > 0, events are batched and delivered together
+    /** Default: 0 (disabled); when enabled, batchFileEvent() is called instead of fileEvent()
+    */
+    int batch_interval = 0;
 }
 
 #! Delayed file notification handler
@@ -385,6 +546,15 @@ public class AbstractDelayedFsEventPoller inherits AbstractFsEventPoller {
         Condition cond();
         bool m_run = False;
 
+        #! paused state - events are collected but not processed
+        bool m_paused = False;
+
+        #! batch interval in milliseconds (0 = disabled)
+        int m_batchInterval = 0;
+
+        #! batch of events for batch processing
+        list<hash<FsEventInfo>> m_batch();
+
         Counter m_counter();
 
         #! Counter that signals when the polling thread is running
@@ -404,7 +574,12 @@ public class AbstractDelayedFsEventPoller inherits AbstractFsEventPoller {
         if (exists options.minage)
             m_minage = int(options.minage);
         if (m_minage < 0)
-            throw "FILEPOLLER-ERROR", sprintf("min_age cannot be < 1 (val: %d)", m_minage);
+            throw "FILEPOLLER-ERROR", sprintf("minage cannot be negative (val: %d)", m_minage);
+
+        if (exists options.batch_interval)
+            m_batchInterval = int(options.batch_interval);
+        if (m_batchInterval < 0)
+            throw "FILEPOLLER-ERROR", sprintf("batch_interval cannot be negative (val: %d)", m_batchInterval);
 
 %ifdef PO_NO_THREAD_CONTROL
         if (!exists options.start_thread)
@@ -470,6 +645,58 @@ public class AbstractDelayedFsEventPoller inherits AbstractFsEventPoller {
         m_counter.waitForZero();
     }
 
+    #! Pauses event processing without stopping event collection
+    /** Events continue to be collected in the cache but fileEvent() is not called until resume() is called.
+        @see resume()
+        @see isPaused()
+    */
+    pause() {
+        AutoLock al(m_mutex);
+        m_paused = True;
+        logInfo("Event processing paused");
+    }
+
+    #! Resumes event processing after a pause()
+    /** Immediately begins processing any events that were collected while paused.
+        @see pause()
+        @see isPaused()
+    */
+    resume() {
+        AutoLock al(m_mutex);
+        m_paused = False;
+        cond.signal();  # Wake up the background thread to process cached events
+        logInfo("Event processing resumed");
+    }
+
+    #! Returns whether event processing is currently paused
+    /** @return True if paused, False otherwise
+        @see pause()
+        @see resume()
+    */
+    bool isPaused() {
+        AutoLock al(m_mutex);
+        return m_paused;
+    }
+
+    #! Returns the number of events currently in the cache
+    /** @return The number of events waiting to be processed
+    */
+    int getCacheSize() {
+        AutoLock al(m_mutex);
+        return m_cache.size();
+    }
+
+    #! Clears all pending events from the cache
+    /** Use with caution - all pending events will be lost
+    */
+    clearCache() {
+        AutoLock al(m_mutex);
+        m_cache = {};
+        age_map = {};
+        m_batch = ();
+        logInfo("Event cache cleared");
+    }
+
     #! Starts the background thread and returns the TID
     private int startIntern() {
 %ifdef PO_NO_THREAD_CONTROL
@@ -487,7 +714,10 @@ public class AbstractDelayedFsEventPoller inherits AbstractFsEventPoller {
         m_start_counter.dec();
 
         # the next wakeup time
-        date wakeup;
+        *date wakeup;
+
+        # batch wakeup time (for batch processing)
+        *date batch_wakeup;
 
         # wait for the next event
         while (m_run) {
@@ -496,8 +726,16 @@ public class AbstractDelayedFsEventPoller inherits AbstractFsEventPoller {
 
             #logDebug("wakeup: %y cache size: %y", wakeup, m_cache.size());
 
-            if (wakeup) {
-                int delta_ms = (wakeup - now_us()).durationMilliseconds();
+            # Calculate the earliest wakeup time
+            *date next_wakeup = wakeup;
+            if (m_batchInterval > 0 && batch_wakeup) {
+                if (!next_wakeup || batch_wakeup < next_wakeup) {
+                    next_wakeup = batch_wakeup;
+                }
+            }
+
+            if (next_wakeup) {
+                int delta_ms = (next_wakeup - now_us()).durationMilliseconds();
                 if (delta_ms > 0) {
                     cond.wait(m_mutex, delta_ms);
                 }
@@ -507,6 +745,28 @@ public class AbstractDelayedFsEventPoller inherits AbstractFsEventPoller {
 
             if (!m_run) {
                 break;
+            }
+
+            # If paused, just continue waiting (events accumulate in cache)
+            if (m_paused) {
+                continue;
+            }
+
+            # Check if batch interval has elapsed and we have batched events
+            if (m_batchInterval > 0 && m_batch.size() > 0 && batch_wakeup && now_us() >= batch_wakeup) {
+                list<hash<FsEventInfo>> events_to_send = m_batch;
+                m_batch = ();
+                remove batch_wakeup;
+
+                # Deliver batch with lock released
+                m_mutex.unlock();
+                on_exit m_mutex.lock();
+
+                try {
+                    batchFileEvent(events_to_send);
+                } catch (hash<auto> ex) {
+                    logInfo("Error in batchFileEvent: %s: %s", ex.err, ex.desc);
+                }
             }
 
             # process events; calculate next wakeup time
@@ -521,6 +781,7 @@ public class AbstractDelayedFsEventPoller inherits AbstractFsEventPoller {
                         i.key, i.value);
 
                     removePathIntern(i.key);
+                    reportError(i.key, "File disappeared from filesystem");
                     continue;
                 }
                 if (m_minage) {
@@ -539,13 +800,48 @@ public class AbstractDelayedFsEventPoller inherits AbstractFsEventPoller {
                 # remove the event from the cache
                 removePathIntern(i.key);
 
+                # For batch mode, add to batch instead of immediate delivery
+                if (m_batchInterval > 0) {
+                    m_batch += i.value;
+                    if (!batch_wakeup) {
+                        batch_wakeup = now_us() + milliseconds(m_batchInterval);
+                    }
+                    continue;
+                }
+
                 # emit the file event with the lock unlocked
                 logDebug("event: %s (mtime %y) -> %y", i.key, st.mtime, i.value);
                 m_mutex.unlock();
                 on_exit m_mutex.lock();
 
-                fileEvent(i.value);
+                try {
+                    fileEvent(i.value);
+                } catch (hash<auto> ex) {
+                    logInfo("Error in fileEvent: %s: %s", ex.err, ex.desc);
+                }
             }
+        }
+
+        # Deliver any remaining batched events on shutdown
+        if (m_batch.size() > 0) {
+            try {
+                batchFileEvent(m_batch);
+            } catch (hash<auto> ex) {
+                logInfo("Error in final batchFileEvent: %s: %s", ex.err, ex.desc);
+            }
+            m_batch = ();
+        }
+    }
+
+    #! Called when events are batched (only when batch_interval > 0)
+    /** Override this method to handle batched events. The default implementation
+        calls fileEvent() for each event in the batch.
+
+        @param events list of events to process
+    */
+    batchFileEvent(list<hash<FsEventInfo>> events) {
+        foreach hash<FsEventInfo> event in (events) {
+            fileEvent(event);
         }
     }
 
