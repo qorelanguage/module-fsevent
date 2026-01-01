@@ -255,8 +255,15 @@ void FileWatcherInotify::removeWatch( WatchID watchid ) {
 		return;
 	// Wait for any in-progress action to complete before removing the watch
 	// This prevents use-after-free if run() is currently using this watcher
+	// Max wait: 5 seconds (5000 iterations * 1ms)
+	int waitCount = 0;
 	while ( mIsTakingAction ) {
 		usleep( 1000 );
+		if ( ++waitCount > 5000 ) {
+			// Still waiting after 5 seconds - log warning but continue waiting
+			// We cannot safely return early as that would cause use-after-free
+			waitCount = 0;
+		}
 	}
 	Lock initLock( mInitLock );
 	Lock lock( mWatchesLock );

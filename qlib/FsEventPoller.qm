@@ -178,12 +178,12 @@ public hashdecl AbstractFsEventPollerOptionInfo {
     );
 
     #! add the path recursively?
-    /** Default @ref False
+    /** Default: @ref Qore::False "False"
     */
     bool recursive = False;
 
     #! disable the initial run?
-    /** Default @ref False
+    /** Default: @ref Qore::False "False"
     */
     bool disable_initial_run = False;
 
@@ -469,17 +469,17 @@ public hashdecl FsDelayedEventPollerOptionInfo {
     );
 
     #! add the path recursively?
-    /** Default @ref False
+    /** Default: @ref Qore::False "False"
     */
     bool recursive = False;
 
     #! disable the initial run?
-    /** Default @ref False
+    /** Default: @ref Qore::False "False"
     */
     bool disable_initial_run = False;
 
     #! Delay time in seconds
-    /** Default \c 600 (10 minutes); 0 = no delay
+    /** Default: 600 (10 minutes); 0 = no delay
     */
     int minage = 600;
 
@@ -502,7 +502,7 @@ public hashdecl FsDelayedEventPollerOptionInfo {
     *code error_callback;
 
     #! Batch interval in milliseconds; if > 0, events are batched and delivered together
-    /** Default \c 0 (disabled); when enabled, batchFileEvent() is called instead of fileEvent()
+    /** Default: 0 (disabled); when enabled, batchFileEvent() is called instead of fileEvent()
     */
     int batch_interval = 0;
 }

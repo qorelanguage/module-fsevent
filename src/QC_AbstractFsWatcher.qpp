@@ -45,29 +45,30 @@ public:
         m_fw = nullptr;
     }
 
-    // Symlink support
+    // Symlink support - these methods must not be called after stop()
     DLLLOCAL void setFollowSymlinks(bool follow) {
-        m_fw->followSymlinks(follow);
+        if (m_fw) m_fw->followSymlinks(follow);
     }
 
     DLLLOCAL bool getFollowSymlinks() const {
-        return m_fw->followSymlinks();
+        return m_fw ? m_fw->followSymlinks() : false;
     }
 
     DLLLOCAL void setAllowOutOfScopeLinks(bool allow) {
-        m_fw->allowOutOfScopeLinks(allow);
+        if (m_fw) m_fw->allowOutOfScopeLinks(allow);
     }
 
     DLLLOCAL bool getAllowOutOfScopeLinks() const {
-        return m_fw->allowOutOfScopeLinks();
+        return m_fw ? m_fw->allowOutOfScopeLinks() : false;
     }
 
-    // Query methods
+    // Query methods - return safe defaults if watcher is stopped
     DLLLOCAL int getWatchCount() const {
-        return m_fw->directories().size();
+        return m_fw ? m_fw->directories().size() : 0;
     }
 
     DLLLOCAL bool isWatching(const char* path) const {
+        if (!m_fw) return false;
         const std::vector<std::string>& dirs = m_fw->directories();
         std::string pathStr(path);
         for (const auto& dir : dirs) {
@@ -341,7 +342,7 @@ AbstractFsWatcher::destructor() {
 
     @returns the object itself for method chaining (fluent API)
 
-    @note To get the watch ID, use getWatchIdForPath() after adding the path.
+    @note To get the watch ID when adding a path, use addPathWithId() instead of this method.
 
     @throw FSWATCHER-ADD-ERROR if the path cannot be watched
 
