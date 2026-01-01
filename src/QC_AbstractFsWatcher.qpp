@@ -112,7 +112,11 @@ FsWatcherPriv::FsWatcherPriv(QoreObject *obj) {
 }
 
 FsWatcherPriv::~FsWatcherPriv() {
-   assert(!m_fw);
+    // Handle case where destructor is called without stop() - can happen
+    // if constructor throws an exception after watcher creation
+    if (m_fw) {
+        stop();
+    }
 }
 
 int FsWatcherPriv::addWatch(const char * path, bool recursive, ExceptionSink *xsink) {
