@@ -80,8 +80,9 @@ public class FsEventPollerUtilTests inherits QUnit::Test {
             "action": FsEvents::MODIFIED,
         };
 
-        assertTrue(eventType.acceptsValue(validEvent),
-            "Type should accept valid event hash");
+        # acceptsValue returns the coerced value (or throws on error)
+        auto result = eventType.acceptsValue(validEvent);
+        assertTrue(exists result, "Type should accept valid event hash");
 
         # Valid event with old_name (for MOVED action)
         hash<auto> moveEvent = {
@@ -92,8 +93,8 @@ public class FsEventPollerUtilTests inherits QUnit::Test {
             "old_name": "oldname.txt",
         };
 
-        assertTrue(eventType.acceptsValue(moveEvent),
-            "Type should accept valid move event hash");
+        result = eventType.acceptsValue(moveEvent);
+        assertTrue(exists result, "Type should accept valid move event hash");
     }
 
     testRejectsInvalidEvent() {
@@ -116,7 +117,7 @@ public class FsEventPollerUtilTests inherits QUnit::Test {
             assertTrue(True, "Type correctly rejected incomplete event");
         }
 
-        # Wrong type for id
+        # Wrong type for id - acceptsValue throws on type mismatch
         hash<auto> wrongType = {
             "id": "not_an_int",
             "dir": "/var/log",
@@ -124,7 +125,12 @@ public class FsEventPollerUtilTests inherits QUnit::Test {
             "action": FsEvents::MODIFIED,
         };
 
-        assertFalse(eventType.acceptsValue(wrongType),
-            "Type should reject event with wrong field type");
+        bool threwException = False;
+        try {
+            eventType.acceptsValue(wrongType);
+        } catch (hash<auto> ex) {
+            threwException = True;
+        }
+        assertTrue(threwException, "Type should reject event with wrong field type");
     }
 }
