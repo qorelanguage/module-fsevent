@@ -12,50 +12,7 @@ DLLLOCAL extern QoreClass* QC_ABSTRACTFSWATCHER;
 
 DLLLOCAL extern const TypedHashDecl* hashdeclFsEventInfo;
 
-// handle external threads
-class CallbackThreadManager {
-public:
-    DLLLOCAL ~CallbackThreadManager() {
-        assert(!tid);
-        assert(!count);
-    }
-
-    DLLLOCAL void inc() {
-        AutoLocker al(l);
-        if (!count) {
-            assert(!tid);
-            tid = q_reserve_foreign_thread_id();
-            assert(tid > 0);
-        }
-        //printd(5, "CTM::inc() %d -> %d\n", count, count + 1);
-        ++count;
-    }
-
-    DLLLOCAL void dec() {
-        AutoLocker al(l);
-        //printd(5, "CTM::dec() %d -> %d\n", count, count - 1);
-        if (!--count) {
-            q_release_reserved_foreign_thread_id(tid);
-            tid = 0;
-        }
-    }
-
-    DLLLOCAL int getTid() const {
-        assert(tid);
-        return tid;
-    }
-
-    DLLLOCAL unsigned getCount() const {
-        return count;
-    }
-
-protected:
-    QoreThreadLock l;
-    unsigned count = 0;
-    int tid = 0;
-};
-
-CallbackThreadManager callbackThreadManager;
+// No global state needed - each callback reserves its own tid
 
 class FsWatcherPriv : public AbstractPrivateData, public FileWatchListener {
 protected:
@@ -73,22 +30,19 @@ public:
 
     DLLLOCAL void stop() {
         //printd(5, "FsWatcherPriv::~FsWatcherPriv() this: %p\n", this);
-        // Signal that we're stopping
+        // Signal that we're stopping and wait for any in-flight callbacks to complete
+        // BEFORE deleting the watcher. This ensures no callbacks are running when we
+        // destroy internal state.
         {
             AutoLocker al(callback_lock);
             stopping = true;
-        }
-        // Delete the watcher which stops the background thread
-        delete m_fw;
-        m_fw = nullptr;
-        // Wait for any in-flight callbacks to complete
-        {
-            AutoLocker al(callback_lock);
             while (callback_count > 0) {
                 callback_cond.wait(callback_lock);
             }
         }
-        callbackThreadManager.dec();
+        // Now it's safe to delete the watcher - no callbacks are running
+        delete m_fw;
+        m_fw = nullptr;
     }
 
     // Symlink support
@@ -154,7 +108,6 @@ FsWatcherPriv::FsWatcherPriv(QoreObject *obj) {
     event = obj->getClass()->findMethod("event");
     assert(event);
     m_obj = obj;
-    callbackThreadManager.inc();
     m_fw->watch();
 }
 
@@ -207,39 +160,49 @@ QoreValue FsWatcherPriv::directories(ExceptionSink* xsink) {
 /// @param action Action that was performed
 /// @param oldFilename The name of the file or directory moved
 void FsWatcherPriv::handleFileAction(WatchID watchid, const std::string& dir, const std::string& filename, Action action, std::string oldFilename) {
+    // CRITICAL: Copy parameters immediately before any locking or checking
+    // efsw may free the underlying memory during watcher destruction, so we must
+    // own copies of all data before we do anything else
+    std::string localDir(dir);
+    std::string localFilename(filename);
+    std::string localOldFilename(oldFilename);
+    WatchID localWatchid = watchid;
+    Action localAction = action;
+
     // Check if we're stopping and increment callback count
-    {
-        AutoLocker al(callback_lock);
-        if (stopping) {
-            return;
-        }
-        ++callback_count;
+    // We hold the lock for the entire callback to serialize callbacks and
+    // ensure thread safety with the shared Qore thread ID
+    AutoLocker al(callback_lock);
+    if (stopping) {
+        return;
     }
+    ++callback_count;
 
     // Ensure we decrement callback count and signal when done
     struct CallbackGuard {
         FsWatcherPriv* priv;
         CallbackGuard(FsWatcherPriv* p) : priv(p) {}
         ~CallbackGuard() {
-            AutoLocker al(priv->callback_lock);
+            // Note: callback_lock is already held by the caller
             if (--priv->callback_count == 0) {
                 priv->callback_cond.signal();
             }
         }
     } guard(this);
 
-    QoreForeignThreadHelper qfth(callbackThreadManager.getTid());
+    // Use the simple foreign thread helper - it auto-registers and deregisters the thread
+    QoreForeignThreadHelper qfth;
 
     ExceptionSink xsink;
 
     ReferenceHolder<QoreListNode> args(new QoreListNode(autoTypeInfo), &xsink);
     ReferenceHolder<QoreHashNode> event_info(new QoreHashNode(hashdeclFsEventInfo, &xsink), &xsink);
-    event_info->setKeyValue("id", watchid, &xsink);
-    event_info->setKeyValue("dir", new QoreStringNode(dir), &xsink);
-    event_info->setKeyValue("name", new QoreStringNode(filename), &xsink);
-    event_info->setKeyValue("action", action, &xsink);
-    if (!oldFilename.empty()) {
-        event_info->setKeyValue("old_name", new QoreStringNode(oldFilename), &xsink);
+    event_info->setKeyValue("id", localWatchid, &xsink);
+    event_info->setKeyValue("dir", new QoreStringNode(localDir), &xsink);
+    event_info->setKeyValue("name", new QoreStringNode(localFilename), &xsink);
+    event_info->setKeyValue("action", localAction, &xsink);
+    if (!localOldFilename.empty()) {
+        event_info->setKeyValue("old_name", new QoreStringNode(localOldFilename), &xsink);
     }
     args->push(event_info.release(), &xsink);
 

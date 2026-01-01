@@ -62,6 +62,8 @@
     - Added getStatistics() for watcher state information
     - Added isWatching() and getWatchCount() query methods
     - Fixed ACTION_MAP and ACTION_RMAP to use symbolic efsw constants
+    - Updated bundled efsw library to version 1.5.0 (fixes double-free bug in inotify implementation)
+    - Fixed use-after-free race condition in inotify backend when calling removePath(id) during active event processing
 
     @subsection fsevent_1_1 fsevent Module Version 1.1.0
     - updated to the efsw 1.4.1
