@@ -198,6 +198,10 @@ void FsWatcherPriv::handleFileAction(WatchID watchid, const std::string& dir, co
 
     // Use the simple foreign thread helper - it auto-registers and deregisters the thread
     QoreForeignThreadHelper qfth;
+    // Check if thread registration succeeded - it can fail during program shutdown
+    if (!qfth) {
+        return;
+    }
 
     ExceptionSink xsink;
 
