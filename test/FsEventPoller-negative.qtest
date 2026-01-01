@@ -10,6 +10,7 @@
 %enable-all-warnings
 
 %requires QUnit
+%requires Util
 %requires ../qlib/FsEventPoller.qm
 
 %exec-class FsEventPollerNegativeTests
@@ -73,7 +74,7 @@ public class FsEventPollerNegativeTests inherits QUnit::Test {
     }
 
     testConflictingMasks() {
-        hash<AbstractFsEventPollerOptionInfo> opts = {
+        hash<AbstractFsEventPollerOptionInfo> opts = <AbstractFsEventPollerOptionInfo>{
             "mask": "*.txt",
             "regex_mask": ".*\\.txt$",
             "actions": (FsEvents::ADD,),
@@ -85,7 +86,7 @@ public class FsEventPollerNegativeTests inherits QUnit::Test {
     }
 
     testEmptyActions() {
-        hash<AbstractFsEventPollerOptionInfo> opts = {
+        hash<AbstractFsEventPollerOptionInfo> opts = <AbstractFsEventPollerOptionInfo>{
             "actions": (),  # Empty list
         };
 
@@ -95,7 +96,7 @@ public class FsEventPollerNegativeTests inherits QUnit::Test {
     }
 
     testNegativeMinage() {
-        hash<FsDelayedEventPollerOptionInfo> opts = {
+        hash<FsDelayedEventPollerOptionInfo> opts = <FsDelayedEventPollerOptionInfo>{
             "actions": (FsEvents::ADD,),
             "minage": -5,
         };
@@ -106,7 +107,7 @@ public class FsEventPollerNegativeTests inherits QUnit::Test {
     }
 
     testInvalidPath() {
-        hash<AbstractFsEventPollerOptionInfo> opts = {
+        hash<AbstractFsEventPollerOptionInfo> opts = <AbstractFsEventPollerOptionInfo>{
             "actions": (FsEvents::ADD,),
         };
 
@@ -118,7 +119,7 @@ public class FsEventPollerNegativeTests inherits QUnit::Test {
     }
 
     testStartMultiple() {
-        hash<FsDelayedEventPollerOptionInfo> opts = {
+        hash<FsDelayedEventPollerOptionInfo> opts = <FsDelayedEventPollerOptionInfo>{
             "actions": (FsEvents::ADD,),
             "minage": 1,
             "disable_initial_run": True,
@@ -136,7 +137,7 @@ public class FsEventPollerNegativeTests inherits QUnit::Test {
     }
 
     testStopWithoutStart() {
-        hash<FsDelayedEventPollerOptionInfo> opts = {
+        hash<FsDelayedEventPollerOptionInfo> opts = <FsDelayedEventPollerOptionInfo>{
             "actions": (FsEvents::ADD,),
             "minage": 1,
             "disable_initial_run": True,
@@ -150,7 +151,7 @@ public class FsEventPollerNegativeTests inherits QUnit::Test {
     }
 
     testStopMultiple() {
-        hash<FsDelayedEventPollerOptionInfo> opts = {
+        hash<FsDelayedEventPollerOptionInfo> opts = <FsDelayedEventPollerOptionInfo>{
             "actions": (FsEvents::ADD,),
             "minage": 1,
             "disable_initial_run": True,
