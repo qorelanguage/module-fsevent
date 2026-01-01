@@ -63,9 +63,8 @@ public class FsEventPollerUtilTests inherits QUnit::Test {
         assertEq("int", fields.action.type.base_type, "action should be int");
 
         # old_name should be optional string (*string)
-        assertTrue(fields.old_name.type.base_type == "string"
-            || fields.old_name.type.base_type == "*string"
-            || fields.old_name.type.or_nothing,
+        # Just check base_type contains "string" for compatibility with different Qore versions
+        assertTrue(fields.old_name.type.base_type.find("string") >= 0,
             "old_name should be optional string");
     }
 

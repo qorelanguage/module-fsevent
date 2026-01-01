@@ -526,6 +526,9 @@ void FileWatcherInotify::run() {
 		}
 	} while ( mInitOK );
 
+	// Ensure mIsTakingAction is cleared before exiting so destructor doesn't wait forever
+	mIsTakingAction = false;
+
 	delete[] buff;
 }
 
