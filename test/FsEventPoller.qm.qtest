@@ -9,8 +9,8 @@
 %exec-class Main
 
 
-const ITERATIONS = 5;
-const THREADS = 5;
+const ITERATIONS = 3;
+const THREADS = 2;
 
 our *hash props;
 
