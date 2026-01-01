@@ -262,6 +262,8 @@ void FileWatcherInotify::removeWatch( WatchID watchid ) {
 		if ( ++waitCount > 5000 ) {
 			// Still waiting after 5 seconds - log warning but continue waiting
 			// We cannot safely return early as that would cause use-after-free
+			efDEBUG( "removeWatch: waiting for in-progress action to complete "
+					 "(mIsTakingAction still true after 5 seconds)\n" );
 			waitCount = 0;
 		}
 	}

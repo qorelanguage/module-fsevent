@@ -184,11 +184,12 @@ void FsWatcherPriv::handleFileAction(WatchID watchid, const std::string& dir, co
     ++callback_count;
 
     // Ensure we decrement callback count and signal when done
+    // Note: callback_lock is held for the entire callback duration (from AutoLocker above)
+    // so this guard's destructor runs while still holding the lock
     struct CallbackGuard {
         FsWatcherPriv* priv;
         CallbackGuard(FsWatcherPriv* p) : priv(p) {}
         ~CallbackGuard() {
-            // Note: callback_lock is already held by the caller
             if (--priv->callback_count == 0) {
                 priv->callback_cond.signal();
             }
@@ -243,13 +244,14 @@ hashdecl Qore::FsEvents::FsEventInfo {
     @par Thread Safety
     - The AbstractFsWatcher class is thread-safe for concurrent calls to addPath(), removePath(), and directories()
     - The event() callback is called from a background thread managed by the filesystem watcher
-    - Multiple event() callbacks may be invoked concurrently for different watch IDs
-    - User code in event() should be thread-safe if sharing state with other threads
+    - Event callbacks are serialized: only one event() callback executes at a time for a given watcher instance
+    - User code in event() should still be thread-safe if sharing state with other user-created threads
 
-    @par Callback Re-entrancy
-    - The event() method may be called while a previous event() call is still executing
-    - For single-threaded event processing, use synchronization in your event() implementation
-    - Consider using AbstractDelayedFsEventPoller for serialized event processing
+    @par Callback Serialization
+    - The implementation ensures that event() is not re-entrant: no new event() call starts while a previous one is executing
+    - This simplifies event handler implementation as you don't need internal synchronization for watcher-local state
+    - If you require concurrent processing of events, offload work from event() to your own worker threads
+    - Note: multiple foreign thread IDs may be allocated by efsw even though callbacks are serialized
 
     @par Exception Handling
     - Exceptions thrown in the event() callback are caught and discarded to prevent crashing the watcher thread
