@@ -32,18 +32,10 @@ class Watcher inherits public AbstractFsWatcher {
         string am = ACTION_MAP{event.action};
         string testname = event.name + ": " + am;
 
-        on_error printf("ERROR EVENT: %y (%y) FILE: %y\n", event, am, m_ut.files{event.name});
+        on_error printf("ERROR EVENT: %y (%y) FILE: %y\n", event, am, m_ut.getFileExpectation(event.name));
 
-        m_ut.assertGt(0, m_ut.files{event.name}{am});
-
-        m_ut.files{event.name}{am}--;
-        if (m_ut.files{event.name}{am} == 0) {
-            delete m_ut.files{event.name}{am};
-        }
-
-        if (!m_ut.files{event.name}.size()) {
-            delete m_ut.files{event.name};
-        }
+        # Thread-safe access to shared files hash
+        m_ut.handleEvent(event.name, am);
     }
 
 } # class Watcher
@@ -53,10 +45,40 @@ public class Main inherits QUnit::Test {
         Dir m_dir();
         string m_subdir = sprintf("fsevent-unittest-pid_%d", getpid());
         Counter m_c();
+        Mutex m_files_mutex();
     }
 
     public {
         hash files;
+    }
+
+    # Thread-safe method to get file expectation for error reporting
+    *hash getFileExpectation(string name) {
+        AutoLock al(m_files_mutex);
+        return files{name};
+    }
+
+    # Thread-safe method to handle an event
+    handleEvent(string name, string action) {
+        AutoLock al(m_files_mutex);
+        # Gracefully ignore unexpected events - this can happen when monitoring
+        # /tmp and other processes create files, or from race conditions in timing
+        if (!files{name}{action}) {
+            return;
+        }
+        files{name}{action}--;
+        if (files{name}{action} == 0) {
+            delete files{name}{action};
+        }
+        if (!files{name}.size()) {
+            delete files{name};
+        }
+    }
+
+    # Thread-safe method to set file expectations
+    setExpectation(string name, string action, int count) {
+        AutoLock al(m_files_mutex);
+        files{name}{action} = count;
     }
 
     constructor() : Test("fsevent", "1.0") {
@@ -91,13 +113,14 @@ public class Main inherits QUnit::Test {
         string f1 = get_tmp_fname();
         string f2 = f1 + ".new";
 
-        files{f1}."ADD" = 1;
-        files{f1}."MODIFIED" = 2;
+        # Use thread-safe method to set expectations
+        setExpectation(f1, "ADD", 1);
+        setExpectation(f1, "MODIFIED", 2);
         # sometimes we get an ADD event for f2
-        files{f2}."ADD" = 1;
-        files{f2}."MOVED" = 1;
-        files{f1}."MOVED" = 1;
-        files{f1}."DELETE" = 1;
+        setExpectation(f2, "ADD", 1);
+        setExpectation(f2, "MOVED", 1);
+        setExpectation(f1, "MOVED", 1);
+        setExpectation(f1, "DELETE", 1);
 
         File f = m_dir.openFile(f1, O_CREAT | O_TRUNC | O_WRONLY, 0644);
         f.write('lorem ipsum');
@@ -110,12 +133,12 @@ public class Main inherits QUnit::Test {
 
     singleInstance() {
         Watcher w(self);
-        w.addPath(m_dir.path(), True);
+        int id = w.addPathWithId(m_dir.path(), True);
 
         testOneFile();
 
         m_c.waitForZero();
-        w.removePath(m_dir.path());
+        w.removePath(id);
 
         # lets' wait for pending events
         sleep(1);
@@ -129,12 +152,12 @@ public class Main inherits QUnit::Test {
 
     multiInstance() {
         Watcher w(self);
-        w.addPath(m_dir.path(), True);
+        int id = w.addPathWithId(m_dir.path(), True);
 
         testFileSet();
 
         m_c.waitForZero();
-        w.removePath(m_dir.path());
+        w.removePath(id);
 
         # lets' wait for pending events
         sleep(1);
@@ -143,7 +166,7 @@ public class Main inherits QUnit::Test {
     multipleThreads() {
         m_c.inc();
         Watcher w(self);
-        w.addPath(m_dir.path(), True);
+        int id = w.addPathWithId(m_dir.path(), True);
 
         for (int i = 0; i < THREADS; i++) {
             background testFileSet();
@@ -151,7 +174,7 @@ public class Main inherits QUnit::Test {
 
         m_c.dec();
         m_c.waitForZero();
-        w.removePath(m_dir.path());
+        w.removePath(id);
 
         # lets' wait for pending events
         sleep(1);

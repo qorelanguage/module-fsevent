@@ -46,13 +46,42 @@ module FsEventPollerUtil {
 
 /** @mainpage FsEventPollerUtil Module
 
-    @section FsEventPollerutuilintro Introduction to the FsEventPollerUtil Module
+    @section FsEventPollerutilintro Introduction to the FsEventPollerUtil Module
 
-    The FsEventPollerUtil module defines types for the <a href="../../FsEventPoller/html/index.html">FsEventPoller</a> module.
+    The FsEventPollerUtil module provides DataProvider integration for the
+    <a href="../../FsEventPoller/html/index.html">FsEventPoller</a> module.
+
+    This module registers the \c qore/fsevents/event data type with the DataProvider framework,
+    enabling filesystem events to be used in data pipelines and integrations.
+
+    @section FsEventPollerutilexample Usage Example
+
+    @code{.py}
+%new-style
+%require-types
+%strict-args
+
+%requires DataProvider
+%requires FsEventPollerUtil
+
+# Get the registered event type
+AbstractDataProviderType event_type = DataProvider::getType("qore/fsevents/event");
+
+# Use with DataProvider pipelines
+hash<auto> event_record = {
+    "id": 1,
+    "dir": "/var/log",
+    "name": "syslog",
+    "action": FsEvents::MODIFIED,
+};
+
+# Validate against the type
+event_type.acceptsValue(event_record);
+    @endcode
 
     @section FsEventPollerutilrelnotes FsEventPollerUtil Module Release Notes
 
-    @section FsEventPollerutilv1_0 Version 1.0
+    @subsection FsEventPollerutilv1_0 Version 1.0
     - initial release
 */
 

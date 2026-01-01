@@ -6,6 +6,7 @@
 #if EFSW_PLATFORM == EFSW_PLATFORM_INOTIFY
 
 #include <efsw/WatcherInotify.hpp>
+#include <atomic>
 #include <map>
 #include <unordered_map>
 #include <vector>
@@ -61,7 +62,7 @@ class FileWatcherInotify : public FileWatcherImpl {
 	Mutex mWatchesLock;
 	Mutex mRealWatchesLock;
 	Mutex mInitLock;
-	bool mIsTakingAction;
+	std::atomic<bool> mIsTakingAction;
 	std::vector<std::pair<WatcherInotify*, std::string>> mMovedOutsideWatches;
 
 	WatchID addWatch( const std::string& directory, FileWatchListener* watcher, bool recursive,
