@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <cstdint>
 #include <efsw/FileWatcherInotify.hpp>
 
 #if EFSW_PLATFORM == EFSW_PLATFORM_INOTIFY
@@ -301,7 +302,7 @@ void FileWatcherInotify::run() {
 
 	WatcherInotify* curWatcher = NULL;
 	WatcherInotify* currentMoveFrom = NULL;
-	u_int32_t currentMoveCookie = -1;
+	uint32_t currentMoveCookie = -1;
 	bool lastWasMovedFrom = false;
 	std::string prevOldFileName;
 
