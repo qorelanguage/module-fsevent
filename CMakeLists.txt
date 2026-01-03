@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.0.0)
+cmake_minimum_required(VERSION 3.5...4.0)
 
 project(qore-fsevent-module VERSION 2.0.0)
 
