@@ -3,6 +3,7 @@
 */
 
 #include <qore/Qore.h>
+#include <qore/QoreSandboxManager.h>
 #include <efsw/efsw.hpp>
 
 using namespace efsw;
@@ -121,6 +122,14 @@ FsWatcherPriv::~FsWatcherPriv() {
 }
 
 int FsWatcherPriv::addWatch(const char * path, bool recursive, ExceptionSink *xsink) {
+    // Check filesystem sandbox access before monitoring directory
+    QoreSandboxManager* sm = runtime_get_sandbox_manager();
+    if (sm && !sm->checkFilesystemAccess(path, QSEC_READ, xsink)) {
+        // checkFilesystemAccess should have raised an exception
+        assert(*xsink);
+        return 0;
+    }
+
     WatchID id = m_fw->addWatch(path, this, recursive);
 
     switch (id) {

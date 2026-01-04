@@ -35,6 +35,7 @@ public class NegativeTests inherits QUnit::Test {
         addTestCase("Add path - file instead of directory", \testAddFile());
         addTestCase("Add same path twice", \testAddPathTwice());
         addTestCase("Fluent API test", \testFluentApi());
+        addTestCase("Sandbox filesystem tests", \sandboxFilesystemTest());
 
         set_return_value(main());
     }
@@ -138,5 +139,73 @@ public class NegativeTests inherits QUnit::Test {
 
         # Cleanup
         w.removePath(path);
+    }
+
+    sandboxFilesystemTest() {
+        # Test that filesystem sandbox blocks addPath() for directories outside allowed paths
+
+        # Create a test directory in /tmp
+        string testDir = "/tmp/fsevent_sandbox_test_" + getpid();
+        mkdir(testDir);
+        on_exit {
+            rmdir(testDir);
+        }
+
+        # Create a sandboxed program with /var as root (so /tmp is outside)
+        Program p(PO_NEW_STYLE | PO_STRICT_ARGS | PO_REQUIRE_TYPES);
+        p.loadModule("fsevent");
+
+        p.parse("
+            class TestWatcher inherits AbstractFsWatcher {
+                event(hash<FsEventInfo> e) {}
+            }
+            sub test_addpath(string path) {
+                TestWatcher w();
+                w.addPath(path);
+            }
+        ", "sandbox_fsevent_test");
+
+        SandboxManager sm();
+        sm.setFilesystemSandboxRoot("/var");
+        p.setSandboxManager(sm);
+
+        # Test that addPath() is blocked when directory is outside sandbox
+        bool caught = False;
+        try {
+            p.callFunction("test_addpath", testDir);
+        } catch (hash<ExceptionInfo> ex) {
+            caught = True;
+            assertEq("FILESYSTEM-ACCESS-DENIED", ex.err, "addPath blocked with correct error");
+        }
+        assertTrue(caught, "addPath outside sandbox was blocked");
+
+        # Test that addPath() works when directory is in allowed path
+        string varTestDir = "/var/tmp/fsevent_sandbox_test_" + getpid();
+        if (is_dir("/var/tmp")) {
+            mkdir(varTestDir);
+            on_exit {
+                rmdir(varTestDir);
+            }
+
+            SandboxManager sm2();
+            sm2.setFilesystemSandboxRoot("/var");
+            Program p2(PO_NEW_STYLE | PO_STRICT_ARGS | PO_REQUIRE_TYPES);
+            p2.loadModule("fsevent");
+
+            p2.parse("
+                class TestWatcher2 inherits AbstractFsWatcher {
+                    event(hash<FsEventInfo> e) {}
+                }
+                int sub test_addpath_allowed(string path) {
+                    TestWatcher2 w();
+                    w.addPath(path);
+                    return 1;
+                }
+            ", "sandbox_fsevent_allowed_test");
+            p2.setSandboxManager(sm2);
+
+            int result = p2.callFunction("test_addpath_allowed", varTestDir);
+            assertEq(1, result, "addPath inside sandbox works");
+        }
     }
 }
