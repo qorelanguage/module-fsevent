@@ -31,7 +31,26 @@ DLLLOCAL TypedHashDecl* init_hashdecl_FsEventInfo(QoreNamespace& ns);
 
 const TypedHashDecl* hashdeclFsEventInfo;
 
-QoreStringNode* fsevent_module_init() {
+static void fsevent_module_init(QoreModuleInitContext& ctx, ExceptionSink& xsink);
+static void fsevent_module_ns_init(QoreNamespace* rns, QoreNamespace* qns, ExceptionSink& xsink);
+static void fsevent_module_delete();
+
+extern "C" DLLEXPORT void fsevent_qore_module_desc(QoreModuleInfo& mod_info) {
+    mod_info.name = "fsevent";
+    mod_info.version = PACKAGE_VERSION;
+    mod_info.desc = "Filesystem Events module";
+    mod_info.author = "Petr Vanek";
+    mod_info.url = "http://qore.org";
+    mod_info.api_major = QORE_MODULE_API_MAJOR;
+    mod_info.api_minor = QORE_MODULE_API_MINOR;
+    mod_info.init = fsevent_module_init;
+    mod_info.ns_init = fsevent_module_ns_init;
+    mod_info.del = fsevent_module_delete;
+    mod_info.license = QL_LGPL;
+    mod_info.license_str = "LGPL";
+}
+
+static void fsevent_module_init(QoreModuleInitContext& ctx, ExceptionSink& xsink) {
     // initialize hashdecls first
     hashdeclFsEventInfo = init_hashdecl_FsEventInfo(FsEventsNS);
 
@@ -41,27 +60,12 @@ QoreStringNode* fsevent_module_init() {
     // initialize classes
     FsEventsNS.addSystemClass(initAbstractFsWatcherClass(FsEventsNS));
 
-    return nullptr;
 }
 
-void fsevent_module_ns_init(QoreNamespace *rns, QoreNamespace *qns) {
+static void fsevent_module_ns_init(QoreNamespace* rns, QoreNamespace* qns, ExceptionSink& xsink) {
     qns->addNamespace(FsEventsNS.copy());
 }
 
-void fsevent_module_delete() {
+static void fsevent_module_delete() {
    // nothing to do here in this case
 }
-
-// qore module symbols
-DLLEXPORT char qore_module_name[] = "fsevent";
-DLLEXPORT char qore_module_version[] = PACKAGE_VERSION;
-DLLEXPORT char qore_module_description[] = "Filesystem Events module";
-DLLEXPORT char qore_module_author[] = "Petr Vanek";
-DLLEXPORT char qore_module_url[] = "http://qore.org";
-DLLEXPORT int qore_module_api_major = QORE_MODULE_API_MAJOR;
-DLLEXPORT int qore_module_api_minor = QORE_MODULE_API_MINOR;
-DLLEXPORT qore_module_init_t qore_module_init = fsevent_module_init;
-DLLEXPORT qore_module_ns_init_t qore_module_ns_init = fsevent_module_ns_init;
-DLLEXPORT qore_module_delete_t qore_module_delete = fsevent_module_delete;
-DLLEXPORT qore_license_t qore_module_license = QL_LGPL;
-
