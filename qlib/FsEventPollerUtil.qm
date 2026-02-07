@@ -27,8 +27,7 @@
 %requires (reexport) fsevent
 %requires reflection
 
-# assume local vars and do not allow $ chars
-%new-style
+%modern
 
 %requires DataProvider
 
@@ -57,9 +56,7 @@ module FsEventPollerUtil {
     @section FsEventPollerutilexample Usage Example
 
     @code{.py}
-%new-style
-%require-types
-%strict-args
+%modern
 
 %requires DataProvider
 %requires FsEventPollerUtil

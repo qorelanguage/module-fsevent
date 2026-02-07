@@ -1,6 +1,6 @@
 #!/usr/bin/env qore
 #
-%new-style
+%modern
 
 %requires Util
 %requires QUnit
@@ -13,7 +13,7 @@ const THREADS = 10;
 
 # let's try to find unique file name
 our hash fnames;
-synchronized sub get_tmp_fname() {
+synchronized string sub get_tmp_fname() {
     int tid = gettid();
     fnames{tid}++;
     return sprintf("tid_%d_%d.txt", tid, fnames{tid});
@@ -30,9 +30,8 @@ class Watcher inherits public AbstractFsWatcher {
 
     nothing event(hash<FsEventInfo> event) {
         string am = ACTION_MAP{event.action};
-        string testname = event.name + ": " + am;
 
-        on_error printf("ERROR EVENT: %y (%y) FILE: %y\n", event, am, m_ut.getFileExpectation(event.name));
+        on_error printf("ERROR EVENT: %y (%s: %s) FILE: %y\n", event, event.name, am, m_ut.getFileExpectation(event.name));
 
         # Thread-safe access to shared files hash
         m_ut.handleEvent(event.name, am);

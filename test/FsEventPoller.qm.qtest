@@ -1,6 +1,6 @@
 #!/usr/bin/env qore
 #
-%new-style
+%modern
 
 %requires Util
 %requires QUnit
@@ -24,7 +24,7 @@ const DEFAULT_OPTS = {
 
 # let's try to find unique file name
 our hash fnames;
-synchronized sub get_tmp_fname() {
+synchronized string sub get_tmp_fname() {
     my int tid = gettid();
     fnames{tid}++;
     return sprintf("tid%d_%d.txt", tid, fnames{tid});

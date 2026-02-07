@@ -35,8 +35,7 @@ module FsEventPoller {
 
 %requires(reexport) fsevent
 
-%new-style
-%require-types
+%modern
 
 /** @mainpage FsEventPoller Module
 
@@ -61,10 +60,7 @@ module FsEventPoller {
     @section file_poller_example Example
 
     @code{.py}
-%new-style
-%require-types
-%strict-args
-%enable-all-warnings
+%modern
 
 %requires FsEventPoller
 

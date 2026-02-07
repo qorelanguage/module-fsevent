@@ -4,10 +4,7 @@
 # Negative tests for the fsevent module
 #
 
-%new-style
-%require-types
-%strict-args
-%enable-all-warnings
+%modern
 
 %requires Util
 %requires QUnit
