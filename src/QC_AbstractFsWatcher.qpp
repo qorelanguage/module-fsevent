@@ -5,6 +5,7 @@
 #include <qore/Qore.h>
 #include <qore/QoreSandboxManager.h>
 #include <efsw/efsw.hpp>
+#include <efsw/base.hpp>
 
 using namespace efsw;
 
@@ -83,6 +84,8 @@ public:
     DLLLOCAL const char* getBackendType() const {
 #if defined(__linux__)
         return "inotify";
+#elif EFSW_PLATFORM == EFSW_PLATFORM_FSEVENTS
+        return "fsevents";
 #elif defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
         return "kqueue";
 #elif defined(_WIN32)

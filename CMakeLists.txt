@@ -28,6 +28,7 @@ qore_find_pthreads()
 
 if (APPLE)
     set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -framework CoreFoundation -framework CoreServices")
+    set(CMAKE_MODULE_LINKER_FLAGS "${CMAKE_MODULE_LINKER_FLAGS} -framework CoreFoundation -framework CoreServices")
 endif (APPLE)
 
 
@@ -65,7 +66,9 @@ set(EFSW_SRC
 )
 
 if (${CMAKE_SYSTEM_NAME} MATCHES "Darwin")
-    set(EFSW_SRC ${EFSW_SRC} src/efsw/FileWatcherKqueue.cpp src/efsw/WatcherKqueue.cpp)
+    set(EFSW_SRC ${EFSW_SRC}
+        src/efsw/FileWatcherFSEvents.cpp src/efsw/WatcherFSEvents.cpp
+        src/efsw/FileWatcherKqueue.cpp src/efsw/WatcherKqueue.cpp)
 endif ()
 
 if (${CMAKE_SYSTEM_NAME} MATCHES "Linux")
@@ -93,7 +96,7 @@ else ()
     )
 endif ()
 
-add_definitions(-DUSE_UTF8 -DEFSW_FSEVENTS_NOT_SUPPORTED=1)
+add_definitions(-DUSE_UTF8)
 
 qore_wrap_qpp_value(QPP_SOURCES DOXLIST _dox_src METALIST QPP_META_SRC ${QPP_SRC})
 

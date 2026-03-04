@@ -53,6 +53,8 @@ void WatcherFSEvents::init() {
 
 	FSEventStreamStart( FSStream );
 
+	dispatch_release( queue );
+
 	CFRelease( CFDirectoryArray );
 	CFRelease( CFDirectory );
 }
