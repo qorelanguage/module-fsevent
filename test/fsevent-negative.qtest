@@ -32,6 +32,7 @@ public class NegativeTests inherits QUnit::Test {
         addTestCase("Add path - file instead of directory", \testAddFile());
         addTestCase("Add same path twice", \testAddPathTwice());
         addTestCase("Fluent API test", \testFluentApi());
+        addTestCase("Named argument calls", \testNamedArgumentCalls());
         addTestCase("Sandbox filesystem tests", \sandboxFilesystemTest());
 
         set_return_value(main());
@@ -136,6 +137,32 @@ public class NegativeTests inherits QUnit::Test {
 
         # Cleanup
         w.removePath(path);
+    }
+
+    testNamedArgumentCalls() {
+        SimpleWatcher w();
+        string path1 = tmp_location() + DirSep + "fsevent_named_1_" + getpid();
+        string path2 = tmp_location() + DirSep + "fsevent_named_2_" + getpid();
+        mkdir(path1);
+        mkdir(path2);
+        on_exit {
+            rmdir(path1);
+            rmdir(path2);
+        }
+
+        w.setFollowSymlinks(follow: False);
+        assertFalse(w.getFollowSymlinks(), "named setFollowSymlinks");
+        w.setAllowOutOfScopeLinks(allow: False);
+        assertFalse(w.getAllowOutOfScopeLinks(), "named setAllowOutOfScopeLinks");
+
+        AbstractFsWatcher result = w.addPath(path: path1, recursive: False);
+        assertEq(w, result, "named addPath returns self");
+        assertTrue(w.isWatching(path: path1), "named isWatching");
+        w.removePath(path: path1);
+
+        int id = w.addPathWithId(path: path2, recursive: False);
+        assertGt(0, id, "named addPathWithId");
+        w.removePath(id: id);
     }
 
     sandboxFilesystemTest() {

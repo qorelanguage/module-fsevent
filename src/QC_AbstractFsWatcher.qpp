@@ -372,7 +372,7 @@ AbstractFsWatcher::destructor() {
 
     @since 2.0 - Changed return type from int to AbstractFsWatcher for fluent API
  */
-AbstractFsWatcher AbstractFsWatcher::addPath(string path, bool recursive = False) {
+AbstractFsWatcher AbstractFsWatcher::addPath(string path, bool recursive = False) [flags=NAMED_ARGS] {
     priv->addWatch(path->getBuffer(), recursive, xsink);
     return self->refSelf();
 }
@@ -383,7 +383,7 @@ AbstractFsWatcher AbstractFsWatcher::addPath(string path, bool recursive = False
 
     This method uses a map lookup: \a O(ln(n))
  */
-AbstractFsWatcher::removePath(int id) {
+AbstractFsWatcher::removePath(int id) [flags=NAMED_ARGS] {
     priv->removeWatch(id, xsink);
 }
 
@@ -393,7 +393,7 @@ AbstractFsWatcher::removePath(int id) {
 
     This method uses a linear search: \a O(n)
  */
-AbstractFsWatcher::removePath(string path) {
+AbstractFsWatcher::removePath(string path) [flags=NAMED_ARGS] {
     priv->removeWatch(path->getBuffer(), xsink);
 }
 
@@ -420,7 +420,7 @@ abstract AbstractFsWatcher::event(hash<FsEventInfo> event);
 
     @see getFollowSymlinks()
  */
-AbstractFsWatcher::setFollowSymlinks(bool follow) {
+AbstractFsWatcher::setFollowSymlinks(bool follow) [flags=NAMED_ARGS] {
     priv->setFollowSymlinks(follow);
 }
 
@@ -444,7 +444,7 @@ bool AbstractFsWatcher::getFollowSymlinks() {
     @see getAllowOutOfScopeLinks()
     @see setFollowSymlinks()
  */
-AbstractFsWatcher::setAllowOutOfScopeLinks(bool allow) {
+AbstractFsWatcher::setAllowOutOfScopeLinks(bool allow) [flags=NAMED_ARGS] {
     priv->setAllowOutOfScopeLinks(allow);
 }
 
@@ -520,7 +520,7 @@ int AbstractFsWatcher::getWatchCount() {
 
     @return True if the path is being watched, False otherwise
  */
-bool AbstractFsWatcher::isWatching(string path) {
+bool AbstractFsWatcher::isWatching(string path) [flags=NAMED_ARGS] {
     return priv->isWatching(path->getBuffer());
 }
 
@@ -538,7 +538,7 @@ bool AbstractFsWatcher::isWatching(string path) {
 
     @see addPath()
  */
-int AbstractFsWatcher::addPathWithId(string path, bool recursive = False) {
+int AbstractFsWatcher::addPathWithId(string path, bool recursive = False) [flags=NAMED_ARGS] {
     return priv->addWatch(path->getBuffer(), recursive, xsink);
 }
 
