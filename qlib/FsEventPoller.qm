@@ -720,6 +720,10 @@ public class AbstractDelayedFsEventPoller inherits AbstractFsEventPoller {
             m_mutex.lock();
             on_exit m_mutex.unlock();
 
+            if (!m_run) {
+                break;
+            }
+
             #logDebug("wakeup: %y cache size: %y", wakeup, m_cache.size());
 
             # Calculate the earliest wakeup time
@@ -848,4 +852,3 @@ public class AbstractDelayedFsEventPoller inherits AbstractFsEventPoller {
     }
 } # class AbstractFsEventPoller
 } # namespace FsEventPoller
-
