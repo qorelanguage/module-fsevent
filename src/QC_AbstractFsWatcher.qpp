@@ -7,6 +7,8 @@
 #include <efsw/efsw.hpp>
 #include <efsw/base.hpp>
 
+#include <thread>
+
 using namespace efsw;
 
 DLLLOCAL extern qore_classid_t CID_ABSTRACTFSWATCHER;
@@ -32,19 +34,59 @@ public:
 
     DLLLOCAL void stop() {
         //printd(5, "FsWatcherPriv::~FsWatcherPriv() this: %p\n", this);
-        // Signal that we're stopping and wait for any in-flight callbacks to complete
-        // BEFORE deleting the watcher. This ensures no callbacks are running when we
-        // destroy internal state.
+        FileWatcher* fw = nullptr;
         {
             AutoLocker al(callback_lock);
+
+            // stop() is reached both from the destructor and from ~FsWatcherPriv(); it must be
+            // idempotent
+            if (stopped) {
+                return;
+            }
+            // Signal that we are stopping so no new callbacks are dispatched
             stopping = true;
+            stopped = true;
+
+            // The Qore object's destructor runs on whichever thread removes the last reference to
+            // the object graph. Because efsw delivers events from its own watch thread by calling
+            // event() via execManaged(), that destructor can be triggered *on the watch thread
+            // itself*, from inside an in-flight event() callback. In that case we cannot drain
+            // callbacks (we are the callback) and we cannot join the watch thread (we are the watch
+            // thread) - doing so would deadlock. Detect this re-entrant case and hand the watcher
+            // off to a separate joiner thread that tears it down once this callback unwinds (the
+            // efsw run loop exits when the watcher is deleted). This is the "external join".
+            if (callback_tid != -1 && callback_tid == q_gettid()) {
+                FileWatcher* rfw = m_fw;
+                m_fw = nullptr;
+                if (rfw) {
+                    // keep this private data alive until the joiner has torn down the watcher
+                    ref();
+                    std::thread joiner([this, rfw]() {
+                        // ~FileWatcher waits for the in-flight action to complete and then joins
+                        // the watch thread; safe to call from this external thread
+                        delete rfw;
+                        ExceptionSink xsink;
+                        deref(&xsink);
+                    });
+                    joiner.detach();
+                }
+                return;
+            }
+
+            // Normal case: destructor runs on a thread other than the watch thread. Wait for any
+            // in-flight callback to complete before deleting the watcher, so no callback is running
+            // when we destroy internal state.
             while (callback_count > 0) {
                 callback_cond.wait(callback_lock);
             }
+            fw = m_fw;
+            m_fw = nullptr;
         }
-        // Now it's safe to delete the watcher - no callbacks are running
-        delete m_fw;
-        m_fw = nullptr;
+        // Delete the watcher with callback_lock released: ~FileWatcher joins the watch thread, and
+        // the watch thread may still be entering handleFileAction() where it must acquire
+        // callback_lock to observe stopping==true and bail out. Holding the lock here would
+        // deadlock against that. (stopping is already set, so no new callback will run.)
+        delete fw;
     }
 
     // Symlink support - these methods must not be called after stop()
@@ -105,6 +147,12 @@ private:
     QoreCondition callback_cond;
     unsigned callback_count = 0;
     bool stopping = false;
+    // set once the watcher has been torn down; makes stop() idempotent
+    bool stopped = false;
+    // Qore thread ID of the thread currently executing an event() callback, or -1 if none. Used to
+    // detect a destructor invoked re-entrantly from within an in-flight callback (see stop()).
+    // Protected by callback_lock.
+    int callback_tid = -1;
 };
 
 FsWatcherPriv::FsWatcherPriv(QoreObject *obj) {
@@ -186,22 +234,25 @@ void FsWatcherPriv::handleFileAction(WatchID watchid, const std::string& dir, co
     WatchID localWatchid = watchid;
     Action localAction = action;
 
-    // Check if we're stopping and increment callback count
-    // We hold the lock for the entire callback to serialize callbacks and
-    // ensure thread safety with the shared Qore thread ID
-    AutoLocker al(callback_lock);
-    if (stopping) {
-        return;
+    // Check if we're stopping and register this callback. We only hold callback_lock briefly here
+    // (not across the callback itself): the watch thread is single-threaded so callbacks are
+    // already serialized, and holding the lock across execManaged() would deadlock if the callback
+    // triggers this object's destructor on the watch thread (see stop()).
+    {
+        AutoLocker al(callback_lock);
+        if (stopping) {
+            return;
+        }
+        ++callback_count;
     }
-    ++callback_count;
 
-    // Ensure we decrement callback count and signal when done
-    // Note: callback_lock is held for the entire callback duration (from AutoLocker above)
-    // so this guard's destructor runs while still holding the lock
+    // Ensure we decrement callback count and signal when done, on every exit path
     struct CallbackGuard {
         FsWatcherPriv* priv;
         CallbackGuard(FsWatcherPriv* p) : priv(p) {}
         ~CallbackGuard() {
+            AutoLocker al(priv->callback_lock);
+            priv->callback_tid = -1;
             if (--priv->callback_count == 0) {
                 priv->callback_cond.signal();
             }
@@ -228,9 +279,25 @@ void FsWatcherPriv::handleFileAction(WatchID watchid, const std::string& dir, co
     }
     args->push(event_info.release(), &xsink);
 
+    // Record that a callback is running on this thread so that a destructor triggered from within
+    // the callback (on this same watch thread) can be detected and handled by stop()
+    {
+        AutoLocker al(callback_lock);
+        callback_tid = q_gettid();
+    }
+
+    // Pin the object for the duration of the callback. Without this, another thread dropping the
+    // last reference to the object during event() would trigger the object's destructor on this
+    // watch thread *while event() is still running*, destroying object state out from under the
+    // callback (use-after-free). Holding our own reference guarantees the destructor cannot fire
+    // until after execManaged() returns; if our deref() below is then the last one, the destructor
+    // runs here but only after event() has fully completed, and stop() handles the watch-thread
+    // case via the external join.
+    m_obj->ref();
     //printd(5, "FsWatcherPriv::handleFileAction this: %p m_obj: %p refs: %d\n", this, m_obj, m_obj->reference_count());
     event->execManaged(m_obj, *args, &xsink).discard(&xsink);
     //m_obj->evalMethodValue("event", *args, &xsink).discard(&xsink);
+    m_obj->deref(&xsink);
 }
 
 //! Filesystem Event information
