@@ -1,0 +1,104 @@
+#!/usr/bin/env qore
+# Regression test for the watcher-destruction deadlock.
+#
+# The efsw watch thread delivers events by calling event() on the watcher object. If the last
+# reference to the watcher is dropped while an event() callback is in flight, the object's destructor
+# is triggered on the watch thread itself, from inside the callback. Before the fix this self-deadlocked
+# (the destructor tried to drain callbacks / join the watch thread / re-acquire a lock it already held),
+# which hung the process at exit. This test deterministically forces that exact situation and verifies
+# the program continues to run.
+
+%new-style
+%enable-all-warnings
+%require-types
+%strict-args
+
+%requires Util
+%requires QUnit
+%requires ../qlib/FsEventPoller.qm
+
+%exec-class Main
+
+class DestroyWatcher inherits FsEvents::AbstractFsWatcher {
+    private {
+        Main m_ut;
+    }
+
+    constructor(Main ut) {
+        m_ut = ut;
+    }
+
+    event(hash<FsEventInfo> e) {
+        # nested call on self, mirroring the real AbstractFsEventPoller::event() -> isAllowed()/fileEvent()
+        # path that triggers the deferred destructor while the callback is on the stack
+        handle(e);
+    }
+
+    private handle(hash<FsEventInfo> e) {
+        m_ut.callbackEntered();
+    }
+}
+
+public class Main inherits QUnit::Test {
+    private {
+        string m_dir = sprintf("%s/fsevent-dic-%d", tmp_location(), getpid());
+        # signalled by the callback once it is executing inside event()
+        Counter m_inCallback(1);
+        # blocks the callback until the test has dropped its reference to the watcher
+        Counter m_releaseCallback(1);
+        # number of events actually delivered to the callback
+        int m_eventCount = 0;
+    }
+
+    constructor() : Test("fsevent-destroy-in-callback", "1.0") {
+        addTestCase("destroy watcher from within event callback", \destroyInCallbackTest());
+        set_return_value(main());
+    }
+
+    globalSetUp() {
+        mkdir(m_dir);
+    }
+
+    globalTearDown() {
+        Dir d();
+        if (d.chdir(m_dir)) {
+            map unlink(m_dir + "/" + $1), d.listFiles();
+        }
+        rmdir(m_dir);
+    }
+
+    # called from the watch thread while inside event(); blocks until the test releases it
+    callbackEntered() {
+        ++m_eventCount;
+        m_inCallback.dec();
+        m_releaseCallback.waitForZero();
+    }
+
+    # drops the last reference to the watcher while a callback is blocked inside event()
+    private dropWatcherWhileInCallback() {
+        DestroyWatcher w(self);
+        w.addPath(m_dir);
+
+        # trigger a filesystem event
+        File f();
+        f.open(m_dir + "/trigger.txt", O_CREAT | O_TRUNC | O_WRONLY, 0644);
+        f.write("x");
+        f.close();
+
+        # wait until the watch thread is blocked *inside* event()
+        m_inCallback.waitForZero();
+        # returning here drops the last reference to w while the callback is still on the watch thread
+    }
+
+    destroyInCallbackTest() {
+        dropWatcherWhileInCallback();
+        # the watcher reference is now gone; release the in-flight callback so it unwinds. Before the
+        # fix the watcher's destructor ran on the watch thread here and deadlocked.
+        m_releaseCallback.dec();
+
+        # if we get here without hanging, the destructor handled the watch-thread case correctly; the
+        # event count proves the callback actually executed (and that we unwound past the destructor
+        # that ran on the watch thread)
+        assertEq(1, m_eventCount, "event delivered and watcher destroyed inside its own callback without deadlock");
+    }
+}
